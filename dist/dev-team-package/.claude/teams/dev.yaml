@@ -1,0 +1,19 @@
+name: dev
+type: delivery
+output: pr
+mission: Ship well-scoped software changes as code-reviewed, CI-green pull requests — application code, API surface, data models, and their tests.
+roster:
+  lead: tech-lead
+  specialists: [backend-expert, frontend-expert, api-expert, database-expert]
+  test: qa-tester
+# Edit these to match YOUR repo's layout. The runner confines every mutating stage
+# to these zones (plus tests/ and docs/); work needed elsewhere is reported, not
+# silently done. Broad zones are fine for a single dev team.
+ownership:
+  - src/
+context_pack: context-packs/dev.md
+gates: [code-review, ci-green]
+budget_defaults: { small: 80000, medium: 200000, large: 500000 }
+# Inherit all global routing defaults. Override only once /model-eval telemetry
+# shows a stage is safe on a cheaper tier. The review stage is never demoted.
+routing: {}

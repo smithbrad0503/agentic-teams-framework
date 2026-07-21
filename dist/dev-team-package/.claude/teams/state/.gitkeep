@@ -1,0 +1,2 @@
+Runtime team-run state (board.json, events.jsonl, runs/*.json) is written here.
+This directory is tracked only via .gitkeep; its contents are gitignored.

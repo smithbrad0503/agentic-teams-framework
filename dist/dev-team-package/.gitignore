@@ -1,0 +1,5 @@
+.claude/teams/state/*
+!.claude/teams/state/.gitkeep
+.DS_Store
+__pycache__/
+*.pyc
