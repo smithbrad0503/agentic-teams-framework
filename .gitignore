@@ -1,0 +1,15 @@
+# Agentic-teams runtime state (board / events / per-run telemetry).
+# Team DEFINITIONS, context packs, and memory files ARE tracked — only the
+# runtime state under state/ is ignored. The .gitkeep keeps the empty dir in git.
+.claude/teams/state/*
+!.claude/teams/state/.gitkeep
+
+# Build artifacts
+dist/*.zip
+
+# OS / editor noise
+.DS_Store
+*.swp
+__pycache__/
+*.pyc
+.pytest_cache/

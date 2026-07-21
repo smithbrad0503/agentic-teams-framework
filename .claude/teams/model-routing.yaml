@@ -1,0 +1,25 @@
+# Global stage-class → {model, effort} defaults. Source of truth for model routing.
+#
+# Philosophy: START STRONG, DEMOTE ON EVIDENCE. A wrong plan or a missed review
+# finding wastes every downstream token, so the decompose and review stages get
+# the strongest model; mechanical stages get the cheapest. Demotion of any stage
+# requires evidence (≥10 clean runs at the current tier: median ≤1 revision round,
+# zero gate escapes) surfaced via /model-eval telemetry and approved by a human.
+# Promotion back is IMMEDIATE on any quality regression.
+#
+# The `review` class is NEVER demoted below the strongest tier — the gatekeeper
+# must not miss a plausible-but-wrong change.
+#
+# MODEL NAMES BELOW ARE PLACEHOLDERS. Replace `strong` / `mid` / `cheap` with the
+# actual model identifiers your Claude Code setup exposes (e.g. a top-tier model
+# for `strong`, a balanced model for `mid`, a fast/cheap model for `cheap`).
+# `effort` is one of: low | medium | high | xhigh | max.
+defaults:
+  decompose:    { model: strong, effort: high }    # wrong plan wastes every downstream token
+  implement:    { model: strong, effort: medium }  # start strong; demotion candidate → mid
+  write-tests:  { model: mid,    effort: medium }  # well-specified once the design exists
+  docs-author:  { model: mid,    effort: medium }  # structured, source-grounded writing
+  mechanical:   { model: cheap,  effort: low }     # formatting, state writes, doc sync
+  review:       { model: strong, effort: high }    # NEVER demote the gatekeeper
+  revision-fix: { model: mid,    effort: medium }  # findings are specific by this point
+  librarian:    { model: cheap,  effort: low }     # mechanical summarization with pointers
