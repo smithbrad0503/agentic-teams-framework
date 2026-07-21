@@ -1,0 +1,46 @@
+# .claude/teams/<name>.yaml — team definition template.
+# Copy this to <name>.yaml (e.g. backend.yaml), fill it in, delete the comments
+# you don't need. `ls .claude/teams/*.yaml` IS your org chart — a team is a
+# definition + a memory file, not a standing process.
+
+name: <name>                 # MUST equal the filename stem (backend.yaml → backend)
+type: delivery               # delivery (output: gated PRs) | advisory (output: reviewed docs)
+output: pr                   # pr | document  (document mode: test stage → fact-check, CI gate → domain/compliance gate)
+
+# One-line charter. Injected into the decompose prompt so the lead knows the team's remit.
+mission: <what this team owns and is accountable for, in one sentence>
+
+# The roster is drawn from .claude/agents/. Every name here MUST have a matching
+# .claude/agents/<name>.md file. The lead runs decompose + revision-fix; specialists
+# implement; the test agent writes tests.
+roster:
+  lead: <lead-agent>                        # e.g. tech-lead, backend-expert, product-manager
+  specialists: [<agent>, <agent>]           # 0+ implementers; [] is valid
+  test: <test-agent>                         # e.g. qa-tester (delivery) / fact-check role (advisory)
+
+# File-ownership zones. The runner confines every mutating stage to these paths
+# (plus tests/ and docs/). Work needed outside these zones is reported as
+# `outOfZoneNeeds`, never silently done — this is how cross-team collisions surface.
+ownership:
+  - <path/to/zone/>
+  - <another/zone/>
+
+# Curated ~1-2k-token briefing injected into every agent in this team's runs.
+# Path is relative to .claude/teams/. See context-packs/TEMPLATE.md.
+context_pack: context-packs/<name>.md
+
+# The gate sequence. Delivery teams use code-review + ci-green.
+gates: [code-review, ci-green]
+
+# Token budget classes recorded in telemetry (small < medium < large).
+budget_defaults: { small: 80000, medium: 200000, large: 500000 }
+
+# Per-stage model routing OVERRIDES. Leave as {} to inherit every global default
+# from model-routing.yaml. Only override where this team has earned a change via
+# /model-eval evidence. Team override wins over the global default per stage class.
+# The `review` stage must never be demoted below the strongest tier.
+routing: {}
+# Example override once you have evidence this team's implement stage is safe on a
+# cheaper model (model names are placeholders — use your org's model identifiers):
+# routing:
+#   implement: { model: mid, effort: medium }
