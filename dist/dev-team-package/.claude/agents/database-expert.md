@@ -1,6 +1,6 @@
 ---
 name: database-expert
-description: Use this agent for PostgreSQL schema design, the ORM models and relationships (SQLAlchemy, Django ORM, etc.), migrations (safe, reversible — Alembic or equivalent), query performance tuning, indexing strategies, data-store optimization for analytics/ML, connection pooling, and backup/recovery strategies. Do NOT use for ORM model wiring inside API endpoints (use backend-expert) or for feature engineering / ML itself (use ml-expert / data-engineer).
+description: Use this agent for PostgreSQL schema design, the ORM models and relationships (SQLAlchemy, Django ORM, etc.), migrations (safe, reversible — Alembic or equivalent), query performance tuning, indexing strategies, data-store optimization for analytics/ML, connection pooling, and backup/recovery strategies. Do NOT use for ORM model wiring inside API endpoints (use backend-expert) or for feature engineering / ML work (outside this team's roster).
 team: engineering
 tools: Read, Edit, Write, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate
 model: sonnet

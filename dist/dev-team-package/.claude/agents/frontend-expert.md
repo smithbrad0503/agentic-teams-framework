@@ -1,6 +1,6 @@
 ---
 name: frontend-expert
-description: Use this agent for modern frontend work — Next.js/React with an App Router, TypeScript strict mode, Tailwind CSS, real-time updates (SWR/WebSocket), mobile-responsive design, performance optimization (code splitting, lazy loading), state management (React Context, Zustand), and WCAG 2.1 AA accessibility. Do NOT use for UX design / wireframes / user flows (use ux-designer) or for backend API contract (use api-expert).
+description: Use this agent for modern frontend work — Next.js/React with an App Router, TypeScript strict mode, Tailwind CSS, real-time updates (SWR/WebSocket), mobile-responsive design, performance optimization (code splitting, lazy loading), state management (React Context, Zustand), and WCAG 2.1 AA accessibility. Do NOT use for backend API contract (use api-expert); UX design/wireframes are an input this agent consumes, not produces.
 team: engineering
 tools: Read, Edit, Write, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate
 model: sonnet

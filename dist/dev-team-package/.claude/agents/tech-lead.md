@@ -1,6 +1,6 @@
 ---
 name: tech-lead
-description: Use this agent for in-code architecture decisions, ADRs (Architecture Decision Records), tech-stack evaluation, technical-debt prioritization, scaling/perf strategy across a backend + frontend stack (e.g. FastAPI + Next.js), and reviewing complex cross-module designs. Coordinates the engineering team — delegates implementation to api-expert, backend-expert, database-expert, frontend-expert, qa-tester, debug-expert, code-reviewer. Do NOT use for cross-team org-level coordination (use orchestrator) or for solo implementation tasks (go direct to the specialist).
+description: Use this agent for in-code architecture decisions, ADRs (Architecture Decision Records), tech-stack evaluation, technical-debt prioritization, scaling/perf strategy across a backend + frontend stack (e.g. FastAPI + Next.js), and reviewing complex cross-module designs. Coordinates the engineering team — delegates implementation to api-expert, backend-expert, database-expert, frontend-expert, qa-tester, debug-expert, code-reviewer. Do NOT use for solo implementation tasks (go direct to the specialist).
 team: lead
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent, TaskCreate, TaskList, TaskUpdate
 model: opus

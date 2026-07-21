@@ -1,6 +1,6 @@
 ---
 name: debug-expert
-description: Use this agent for investigating bug reports, reproducing issues locally or in a pre-production environment, root-causing failures via logs/profiling/tracing across FastAPI async, Celery tasks, Redis cache, PostgreSQL queries, AWS ECS/CloudWatch, JWT auth, WebSocket connections, and third-party API integrations. Do NOT use for writing test suites (use qa-tester) or for production incident response (use sre).
+description: Use this agent for investigating bug reports, reproducing issues locally or in a pre-production environment, root-causing failures via logs/profiling/tracing across FastAPI async, Celery tasks, Redis cache, PostgreSQL queries, AWS ECS/CloudWatch, JWT auth, WebSocket connections, and third-party API integrations. Do NOT use for writing test suites (use qa-tester) or for production incident response (escalate to your ops/on-call process).
 team: engineering
 tools: Read, Edit, Write, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate
 model: sonnet

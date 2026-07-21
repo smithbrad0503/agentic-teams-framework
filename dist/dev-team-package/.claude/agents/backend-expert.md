@@ -1,6 +1,6 @@
 ---
 name: backend-expert
-description: Use this agent when implementing server-side application code — routing, ORM/data models and relationships, request/response validation, auth (e.g. JWT) and role/tier-based authorization, cache-based rate limiting, or wiring async tasks into endpoints (commonly FastAPI, Django, Express, or Rails). Do NOT use for REST endpoint design / OpenAPI contract / route layout (use api-expert) or for async worker config / broker tuning (use celery-expert).
+description: Use this agent when implementing server-side application code — routing, ORM/data models and relationships, request/response validation, auth (e.g. JWT) and role/tier-based authorization, cache-based rate limiting, or wiring async tasks into endpoints (commonly FastAPI, Django, Express, or Rails). Do NOT use for REST endpoint design / OpenAPI contract / route layout (use api-expert) — async worker/broker internals are handled by whoever owns your task-queue config.
 team: engineering
 tools: Read, Edit, Write, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate
 model: sonnet
