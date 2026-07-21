@@ -1,7 +1,6 @@
 export const meta = {
   name: 'team-run',
-  description:
-    'One team, one ticket, one branch → reviewed, CI-green PR (never merges). Deterministic stage skeleton — decompose → implement → test → docs → review gate → CI gate → report — with per-stage model routing from .claude/teams/ and telemetry for /model-eval.',
+  description: 'Runs a dev team on one ticket and opens a reviewed, CI-green PR for human approval.',
   whenToUse:
     'Dispatch via the /team command (resolves team config, registers the board entry, generates runId/timestamp). Direct invocation works too: a setup agent resolves config from .claude/teams/. Passing args.fixtures makes it a DRY RUN: no real agents, no state writes, returns the stage trace.',
   phases: [
