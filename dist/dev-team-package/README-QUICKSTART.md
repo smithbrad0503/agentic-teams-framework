@@ -116,3 +116,7 @@ in the PR body). A human reviews and merges. That is the entire safety model —
 Copy `.claude/teams/TEMPLATE.yaml` to a new `<team>.yaml`, give it a roster from
 `.claude/agents/`, ownership zones, and a context pack. `ls .claude/teams/*.yaml` is your org
 chart.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Developed independently on personal time and equipment.

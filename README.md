@@ -117,3 +117,7 @@ Encoded directly in the runner and guardrails (each was paid for in debugging):
 `dist/dev-team-package/` is a self-contained subset with only the software-developer roster,
 a ready-to-use `dev` team, and a 15-minute quickstart written for a corporate setting. It also
 ships zipped as `dist/dev-team-package.zip`.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Developed independently on personal time and equipment.
