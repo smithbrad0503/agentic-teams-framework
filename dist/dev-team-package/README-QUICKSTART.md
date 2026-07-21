@@ -28,6 +28,14 @@ roster, no external dependencies beyond the tools listed below.
                                docs-author, github-expert  (+ AGENTS.md registry)
 ```
 
+## Fastest install: hand it to an agent
+
+If you use Claude Code, skip the manual steps: open a session in your target repo and say
+*"Read docs/AGENT-IMPLEMENTATION-GUIDE.md from the dev-team package and implement it for
+this repo."* The guide walks the agent through discovery, install, model mapping, team
+config, a fixture dry run, and a supervised first dispatch — asking you only the questions
+it can't answer from the repo (model names, ownership zones, trip-wires).
+
 ## Prerequisites
 
 - **Claude Code** with the **Workflow** tool.
