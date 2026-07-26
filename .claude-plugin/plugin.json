@@ -1,7 +1,7 @@
 {
   "name": "agentic-org",
   "description": "Materialize a customized agentic org — teams, agents, context packs, shared org memory, and a gated PR pipeline — into your project via an interview wizard.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Bradley Smith"
   },
