@@ -14,8 +14,13 @@ it keeps working if the plugin is uninstalled.
   `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`
 - Provenance header, added to EVERY generated file:
   - markdown: `<!-- agentic-org: v<version> source=<path> -->` placed
-    on the line after the H1 title (or after the closing frontmatter `---` when the
-    file has frontmatter)
+    on the line after the H1 title — UNLESS the file has YAML frontmatter, in
+    which case frontmatter always wins: place it immediately after the closing
+    frontmatter `---`, even when an H1 follows below it (agent files have both;
+    the frontmatter position is correct for them). Either way, the provenance
+    line MUST land within the file's first 12 lines — that's the window
+    `/org-update` and `scripts/validate_org.py` scan; anything placed later is
+    invisible to both.
   - yaml: `# agentic-org: v<version> source=<path>` as line 1
   - **`source=<path>` is always relative to `${CLAUDE_PLUGIN_ROOT}` (the plugin root),
     NEVER relative to the `.claude/` library subdirectory.** Concretely: prepend
@@ -56,11 +61,21 @@ workflow before the first dispatch.
 
 ## 2. Existing-org check (idempotence)
 
-If any team yaml exists (`.claude/teams/*.yaml` excluding `TEMPLATE.yaml` and
-`model-routing.yaml`): say the org already exists and offer exactly two paths —
-**update** (invoke the org-update skill and stop) or **extend** (continue, but
-only ADD new teams/agents/recipes; skip every file that already exists and list
-the skips at the end). NEVER silently overwrite an existing org file.
+Run:
+
+```bash
+ls .claude/teams/*.yaml 2>/dev/null | grep -v -E '/(TEMPLATE|model-routing)\.yaml$'
+```
+
+This returns cleanly empty (no output, no error) both when `.claude/teams/`
+has no team yamls yet AND when `.claude/` doesn't exist at all — either shape
+means "no existing org," and empty output is that signal, not a failure.
+
+If any team yaml exists (excluding `TEMPLATE.yaml` and `model-routing.yaml`):
+say the org already exists and offer exactly two paths — **update** (invoke
+the org-update skill and stop) or **extend** (continue, but only ADD new
+teams/agents/recipes; skip every file that already exists and list the skips
+at the end). NEVER silently overwrite an existing org file.
 
 ## 3. Interview (one question at a time)
 
@@ -121,8 +136,11 @@ Generate, each file with its provenance header:
    agentType that doesn't exist in this project. Prepend a short header note
    (2-3 lines, above the existing content) naming which agents were actually
    materialized in this project (`ls .claude/agents/*.md`) versus which remain
-   available in the library only (install via `/org-update` or by hand). Do
-   NOT rewrite the rest of the registry.
+   available in the library only (install via `/org-update` or by hand). Order
+   top-to-bottom: H1 title, then the provenance comment (line 2, per the
+   provenance-header rule above — this file has no frontmatter), then the
+   header note, then the original registry body unchanged. Do NOT rewrite the
+   rest of the registry.
 2. **Teams** → `teams/<team>.yaml` from `teams/TEMPLATE.yaml` (drop the
    template comments): name = filename stem, type/output per the table,
    one-line mission from the interview, roster, REAL ownership zones (every
@@ -155,7 +173,14 @@ Generate, each file with its provenance header:
 9. **Routing** → `teams/model-routing.yaml` from the library file with
    `strong` / `mid` / `cheap` replaced by the user's identifiers. The `review`
    stage MUST use the same model as `decompose`, and `review`'s effort MUST be
-   `high`, `xhigh`, or `max`.
+   `high`, `xhigh`, or `max`. The library file's comment block above `defaults:`
+   tells the *wizard* to do this substitution — once you've done it, that
+   instruction is stale (it describes a still-pending action that already
+   happened). Replace it with a short factual note instead: which identifier
+   was chosen for each of `strong` / `mid` / `cheap`, and a one-line restatement
+   that `review` must never be demoted below the strongest tier. Keep the rest
+   of the file (the philosophy comment, the `defaults:` block structure)
+   unchanged.
 10. **State dir** → `teams/state/.gitkeep` (empty file).
 
 ## 7. Wire the project

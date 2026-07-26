@@ -140,6 +140,20 @@ Encoded directly in the runner and guardrails (each was paid for in debugging):
 - Worktree CWD drift — use absolute paths; do main-checkout writes via `git rev-parse --show-toplevel`.
 - Missing routing entries fall back to the strong tier, never silently to the cheapest.
 
+## Known limitations
+
+- **No generalist software-engineer identity.** The delivery roster's specialists
+  (`backend-expert`, `frontend-expert`, `api-expert`, `database-expert`) are all
+  web-service-shaped. A plain library or algorithm project with no web/API/DB
+  surface has no naturally-fitting specialist to staff — `/org-init` will pick
+  the least-wrong option (typically `backend-expert`) and lean on that agent's
+  PROJECT-CONTEXT block to override the mismatch. Not a bug, just a roster gap.
+- **`/org-init` only customizes the PROJECT-CONTEXT block of each agent** — the
+  surrounding template body (stack examples, sample tasks) stays generic even
+  when it doesn't match the project. This is deliberate: it's what lets
+  `/org-update` diff and sync future library improvements into a materialized
+  agent without fighting project-specific rewrites elsewhere in the file.
+
 ## Need just a dev team?
 
 `dist/dev-team-package/` is a self-contained subset with only the software-developer roster,
