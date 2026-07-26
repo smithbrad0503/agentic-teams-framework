@@ -200,6 +200,32 @@ def test_budget_defaults_non_numeric_fails(tmp_path: Path) -> None:
     assert run(root) == 1
 
 
+def test_budget_defaults_list_fails(tmp_path: Path, capsys) -> None:
+    """A list-valued budget_defaults must produce a normal error, not an AttributeError crash."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "budget_defaults: { small: 80000, medium: 200000, large: 500000 }",
+        "budget_defaults: [80000, 200000, 500000]",
+    ))
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "budget_defaults" in err
+
+
+def test_budget_defaults_scalar_fails(tmp_path: Path, capsys) -> None:
+    """A scalar-valued budget_defaults must produce a normal error, not an AttributeError crash."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "budget_defaults: { small: 80000, medium: 200000, large: 500000 }",
+        "budget_defaults: nope",
+    ))
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "budget_defaults" in err
+
+
 def test_routing_as_list_fails(tmp_path: Path) -> None:
     """A team yaml with routing as a list (not a mapping) must not crash with AttributeError."""
     root = make_valid_org(tmp_path)

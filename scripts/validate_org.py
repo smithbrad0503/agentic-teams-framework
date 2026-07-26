@@ -95,15 +95,20 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
         errs.append(f"{path}: context pack missing: {pack_rel!r}")
     if cfg.get("gates") != ["code-review", "ci-green"]:
         errs.append(f"{path}: gates must be [code-review, ci-green]")
-    budgets = cfg.get("budget_defaults") or {}
-    budget_values_numeric = all(
-        isinstance(budgets.get(k), (int, float)) and not isinstance(budgets.get(k), bool)
-        for k in ("small", "medium", "large")
-    )
-    if set(budgets) != {"small", "medium", "large"} or not budget_values_numeric:
-        errs.append(f"{path}: budget_defaults must define small, medium, large as numbers")
-    elif not (budgets["small"] < budgets["medium"] < budgets["large"]):
-        errs.append(f"{path}: budget_defaults must define small < medium < large")
+    budgets = cfg.get("budget_defaults")
+    if budgets is None:
+        budgets = {}
+    if not isinstance(budgets, dict):
+        errs.append(f"{path}: budget_defaults must be a mapping of small/medium/large to numbers")
+    else:
+        budget_values_numeric = all(
+            isinstance(budgets.get(k), (int, float)) and not isinstance(budgets.get(k), bool)
+            for k in ("small", "medium", "large")
+        )
+        if set(budgets) != {"small", "medium", "large"} or not budget_values_numeric:
+            errs.append(f"{path}: budget_defaults must define small, medium, large as numbers")
+        elif not (budgets["small"] < budgets["medium"] < budgets["large"]):
+            errs.append(f"{path}: budget_defaults must define small < medium < large")
     routing = cfg.get("routing")
     if routing is not None and not isinstance(routing, dict):
         errs.append(f"{path}: routing must be a mapping of stage -> {{model, effort}}")
