@@ -280,7 +280,11 @@ def test_json_output_shape(tmp_path, capsys):
                                        "tokens", "pct_tokens", "mean_tokens"}
     assert set(data["cost"]) == {"output_share_range", "per_model", "low_usd", "high_usd",
                                  "low_usd_per_run", "high_usd_per_run",
-                                 "unpriced_models", "unpriced_tokens"}
+                                 "unpriced_models", "unpriced_tokens",
+                                 # True when the unverified built-in price table was used;
+                                 # consumers must not quote a figure computed from it.
+                                 "builtin_prices"}
+    assert data["cost"]["builtin_prices"] is True
     # Not requested, so absent.
     assert "gh" not in data and "reconcile" not in data
 

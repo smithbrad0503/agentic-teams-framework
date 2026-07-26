@@ -30,10 +30,13 @@ from pathlib import Path
 # List prices in USD per million tokens, keyed by the model identifier the runner
 # records in each stage record (model-routing.yaml's `model:` values).
 #
-# THESE ARE LIST PRICES AND THEY GO STALE. Update them when your provider's
-# published pricing changes, or override the whole table with --prices <file>.
-# They are not negotiated rates, they ignore prompt caching and batch discounts,
-# and they are the single largest source of error in the dollar figures below.
+# !! THESE ARE UNVERIFIED PLACEHOLDERS. !!
+# They were seeded to make the arithmetic runnable, NOT read off a price sheet.
+# Verify every rate against your provider's current published pricing before you
+# quote a dollar figure to anyone — or override the whole table with
+# --prices <file>. They are not negotiated rates, they ignore prompt caching and
+# batch discounts, and they are the single largest source of error in the dollar
+# figures below. The script prints a warning whenever the built-in table is used.
 #
 # More importantly: telemetry records only a TOTAL token count per stage
 # (`budget.spent()` delta) with NO input/output split. Input and output are
@@ -539,7 +542,12 @@ def render(report: dict, out) -> None:
     w(f"  Range spans a {low_share:.0%}–{high_share:.0%} output-token share. Telemetry records")
     w("  only a TOTAL per stage with no input/output split, and input and output are")
     w("  priced 5x apart — a single-number cost would be invented, not measured.")
-    w("  Rates are list prices and go stale; edit PRICES or pass --prices.")
+    if cost.get("builtin_prices"):
+        w("  !! RATES ARE UNVERIFIED PLACEHOLDERS — the built-in table was seeded to make")
+        w("  !! the arithmetic runnable, not read off a price sheet. Verify against your")
+        w("  !! provider's published pricing (or pass --prices) before quoting any figure.")
+    else:
+        w("  Rates came from --prices; they still go stale as pricing changes.")
     if cost["unpriced_models"]:
         w(f"  Unpriced models excluded from the totals: {', '.join(cost['unpriced_models'])} "
           f"({n(cost['unpriced_tokens'])} tokens)")
@@ -622,6 +630,9 @@ def main(argv: list[str] | None = None) -> int:
     report = compute(runs, prices)
     report["project_root"] = str(root)
     report["skipped"] = skipped
+    # Surfaced in both renderers: a dollar figure computed from the unverified
+    # built-in table must never be quoted to anyone as if it were measured.
+    report["cost"]["builtin_prices"] = ns.prices is None
 
     states: dict[str, str] = {}
     if ns.gh or ns.reconcile:
