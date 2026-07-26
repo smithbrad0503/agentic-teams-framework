@@ -7,7 +7,24 @@ isolated git worktree and returns a **code-reviewed, CI-green pull request** —
 
 This is an extraction of a framework that proved itself over ~30 merged PRs and 13+
 team-runs on a production codebase. The machinery is generic; everything project-specific
-lives in config you write (team yamls + context packs).
+lives in config you write (team yamls + context packs) — or, with the plugin, config
+the `/org-init` wizard writes for you.
+
+## Install as a plugin (recommended)
+
+```
+/plugin marketplace add smithbrad0503/agentic-teams-framework
+/plugin install agentic-org@agentic-teams
+```
+
+Then, inside the project you want to staff, run `/org-init`. It interviews you
+(product, stack, org functions, model tiers), scans the repo, and materializes a
+customized org into `.claude/` — agents, team yamls, context packs, org memory, the
+runner, and any workflow recipes you opt into. The project **owns** the output; it keeps
+working if the plugin is removed. When the plugin updates, `/org-update` diffs library
+improvements into your org without touching your customizations.
+
+Prefer manual adoption? The 10-minute quickstart below still works unchanged.
 
 ## What it is
 
@@ -22,6 +39,9 @@ lives in config you write (team yamls + context packs).
   **start strong, demote only on evidence; never demote the review gate.**
 - **Context packs** are the token lever — curated ~1–2k-token briefings (pointers, not code;
   trip-wires, not tutorials) injected into every agent so they don't re-explore cold.
+- **Org memory** (`.claude/org-memory/`) — decisions, architecture facts, and cross-team
+  lessons injected into every run's decompose and review stages. Runs append candidates;
+  humans curate. Per-team lessons stay in team memory.
 - **Full org, two output modes:** delivery teams emit gated PRs; advisory teams (product,
   growth, business-ops) emit reviewed documents through a compliance gate.
 
@@ -80,6 +100,8 @@ team-run.js  ── isolated worktree ──►  decompose → implement → tes
     context-packs/TEMPLATE.md   annotated context-pack template
     memory/TEMPLATE.md          annotated team-lessons template
     state/.gitkeep              runtime board/events/telemetry live here (gitignored)
+  org-memory/                   cross-team memory seeds (decisions, architecture, lessons)
+  workflows/recipes/            recurring-workflow recipes (health-check, retro, audit)
   agents/                       the full agent org (sanitized, generic)
     AGENTS.md                   registry: roster, tiers, when to invoke
     optional/                   agents that need an MCP connection (notion, slack)
@@ -89,6 +111,10 @@ docs/
 tests/                          schema/hygiene tests for team defs, packs, state
 dist/
   dev-team-package/             self-contained software-developer-team subset (+ .zip)
+.claude-plugin/                 plugin manifest + marketplace (install: agentic-org@agentic-teams)
+skills/                         /org-init (materialize an org) · /org-update (sync library changes)
+commands/                       /team as a plugin command (mirror of .claude/commands/team.md)
+scripts/validate_org.py         deterministic gate for materialized orgs
 ```
 
 ## The core invariant

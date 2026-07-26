@@ -169,6 +169,19 @@ agent prompt in a team's runs, replacing cold exploration. Rules:
 
 Run telemetry is data, not memory — pruned after aggregation.
 
+### Org memory (the cross-team layer)
+
+`.claude/org-memory/` holds three capped files — `decisions.md`, `architecture.md`,
+`lessons.md` (≤8k chars each, same philosophy as packs: small, curated, high-signal).
+The dispatcher concatenates them into `config.orgMemory`; the runner injects the result
+into the **decompose** and **review** prompts only (the stages where cross-team context
+changes outcomes — mutating stages stay lean). Any stage may report `orgLessons`
+(cross-team, durable; rare); the Report stage appends them as `- [ ] (<runId>) …`
+candidate lines under `## Candidates (pending curation)` in `lessons.md`, uncommitted.
+Humans curate candidates up into the files; runs never write above that heading. One
+owner per layer still holds: team memory (holding area) → context pack (team canon) →
+org memory (cross-team canon).
+
 ## 7. The runner
 
 ### `team-run.js` — one team, one task, one worktree → gated deliverable
