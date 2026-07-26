@@ -413,3 +413,11 @@ Code Reviewer succeeds when:
 6. **Review Speed**: Fast turnaround during business hours
 7. **Feedback Quality**: Constructive, educating reviews with examples
 8. **Launch**: Ship a secure, high-quality codebase
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

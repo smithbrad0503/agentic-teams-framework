@@ -29,6 +29,7 @@ export const meta = {
 //                mechanical, review, revision-fix, librarian.
 //     pack:      string   — the FULL context-pack markdown (pointers, trip-wires)
 //     memory:    string   — the FULL team-lessons markdown ("" if absent)
+//     orgMemory: string   — concatenated .claude/org-memory/ markdown ("" if absent)
 //   }
 //
 //   HOST CONTRACT (provided by the Workflow runtime):
@@ -76,6 +77,7 @@ const BRANCH = `${A.ticket.toLowerCase()}-${A.team}`
 const trace = []
 const stages = []
 const lessons = []
+const orgLessons = []
 let pr = null
 
 // call(): the ONLY way stages invoke agents. Dry-run records the trace and returns
@@ -110,6 +112,7 @@ const call = async (label, phaseName, prompt, opts = {}) => {
     ...(err ? { error: err } : {}),
   })
   if (res && Array.isArray(res.lessons)) lessons.push(...res.lessons.map((l) => ({ stage: label, lesson: l })))
+  if (res && Array.isArray(res.orgLessons)) orgLessons.push(...res.orgLessons.map((l) => ({ stage: label, lesson: l })))
   return res
 }
 
@@ -177,6 +180,7 @@ const CONFIG_SCHEMA = {
     routing: { type: 'object', description: 'stage-class → {model, effort}; global defaults with team overrides merged (team wins)' },
     pack: { type: 'string', description: 'full context-pack markdown' },
     memory: { type: 'string', description: 'full team-lessons markdown ("" if absent)' },
+    orgMemory: { type: 'string', description: 'concatenated org-memory markdown ("" if absent)' },
   },
   required: ['mission', 'roster', 'ownership', 'routing', 'pack'],
 }
@@ -203,6 +207,7 @@ const PLAN_SCHEMA = {
     docTargets: { type: 'array', items: { type: 'string' } },
     risks: { type: 'array', items: { type: 'string' } },
     lessons: { type: 'array', items: { type: 'string' } },
+    orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
   },
   required: ['feasible', 'packages', 'testPlan'],
 }
@@ -216,6 +221,7 @@ const BUILD_SCHEMA = {
     testsRun: { type: 'string' },
     outOfZoneNeeds: { type: 'array', items: { type: 'string' } },
     lessons: { type: 'array', items: { type: 'string' } },
+    orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
   },
   required: ['summary'],
 }
@@ -228,6 +234,7 @@ const DOCS_SCHEMA = {
     summary: { type: 'string' },
     bloatFlags: { type: 'array', items: { type: 'string' } },
     lessons: { type: 'array', items: { type: 'string' } },
+    orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
   },
   required: ['summary'],
 }
@@ -240,6 +247,7 @@ const REVIEW_SCHEMA = {
     mustFix: { type: 'array', items: { type: 'string' } },
     nits: { type: 'array', items: { type: 'string' } },
     lessons: { type: 'array', items: { type: 'string' } },
+    orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
   },
   required: ['verdict', 'mustFix'],
 }
@@ -274,8 +282,9 @@ Read these repo files:
 2. .claude/teams/model-routing.yaml — global stage-class routing defaults
 3. The context-pack file named by the team yaml's context_pack field (path relative to .claude/teams/)
 4. .claude/teams/memory/${A.team}.md (if missing, use "")
+5. .claude/org-memory/decisions.md + architecture.md + lessons.md (concatenate in that order; if the directory is absent, use "")
 
-Return: mission, roster, ownership from the team yaml; routing = the global defaults with the team yaml's routing overrides merged on top (team override wins per stage class); pack = the FULL context-pack markdown; memory = the FULL memory markdown.`,
+Return: mission, roster, ownership from the team yaml; routing = the global defaults with the team yaml's routing overrides merged on top (team override wins per stage class); pack = the FULL context-pack markdown; memory = the FULL memory markdown; orgMemory = the concatenated org-memory markdown ("" if absent).`,
     { model: 'haiku', effort: 'low', schema: CONFIG_SCHEMA }
   )
   if (!cfg) return await blocked('setup', 'could not resolve team config from .claude/teams/')
@@ -295,6 +304,7 @@ NON-NEGOTIABLE CONSTRAINTS:
 - DO NOT MERGE. DO NOT push to the default branch. The PR stays open for human approval.
 - DO NOT execute stateful/outward operations (production DB writes, object-store pushes, queue drains, backfills, deploys). Document them as ops steps in the PR body instead.
 - If you learn something durable a future ${A.team}-team run should know, put it in your "lessons" report field (one line each).
+- If you learn something durable that affects OTHER teams too (an org-wide decision, contract, or invariant), put it in your "orgLessons" report field instead (one line each; rare — most runs report none).
 - REPORT FORMAT: every string field in your final structured report must be SHORT and SINGLE-LINE (≤300 chars, no newlines, no backticks, minimal quotes) — long multiline strings break the report parser and fail the whole stage. Put detail in the PR body / commit messages, never in the report.
 
 ## Team context pack (${A.team})
@@ -327,7 +337,8 @@ If the brief is too vague or infeasible to implement safely, return feasible=fal
 
 ## Team context pack (${A.team})
 ${cfg.pack}
-${cfg.memory ? `\n## Team lessons\n${cfg.memory}` : ''}`,
+${cfg.memory ? `\n## Team lessons\n${cfg.memory}` : ''}
+${cfg.orgMemory ? `\n## Org memory (cross-team)\n${cfg.orgMemory}` : ''}`,
   { model: dr.model, effort: dr.effort, agentType: cfg.roster.lead, schema: PLAN_SCHEMA }
 )
 if (!plan) return await blocked('decompose')
@@ -426,7 +437,8 @@ ${A.brief}
 Focus on CORRECTNESS and SECURITY over style: does the change do what the ticket needs without introducing a regression, a silent-failure path, a security/authorization leak, or data corruption? This PR also contains test and docs commits — verify the tests actually pin the behavior and the doc changes match the code (stale docs are a must-fix). Run static analysis and the relevant tests; verify any "pre-existing failure" claim against the default branch rather than trusting it. Post a structured PR review, but the LOAD-BEARING output is your structured return: verdict (approve | request-changes) and a concrete mustFix list (empty when approving). Be strict — a plausible-but-wrong change must die here. Do NOT merge.
 
 ## Team context pack (${A.team})
-${cfg.pack}`,
+${cfg.pack}
+${cfg.orgMemory ? `\n## Org memory (cross-team)\n${cfg.orgMemory}` : ''}`,
     { agentType: 'code-reviewer', model: rr.model, effort: rr.effort, schema: REVIEW_SCHEMA }
   )
   if (!review || review.verdict === 'request-changes') {
@@ -508,6 +520,10 @@ ${JSON.stringify({ ts: A.timestamp, run: A.runId, team: A.team, type: eventType,
 ${lessons.length
   ? `4. Append to .claude/teams/memory/${A.team}.md:\n\n## ${A.timestamp} ${A.ticket}\n${lessons.map((l) => `- (${l.stage}) ${l.lesson}`).join('\n')}\n\nNOTE: the memory file IS tracked by git but do NOT commit it here — memory commits ride the next framework PR.`
   : '4. No lessons this run — do not touch the memory file.'}
+
+${orgLessons.length
+  ? `5. Append to .claude/org-memory/lessons.md, directly under the "## Candidates (pending curation)" heading (if the file or heading is missing, skip this step and say so):\n${orgLessons.map((l) => `- [ ] (${A.runId}) (${l.stage}) ${l.lesson}`).join('\n')}\n\nNOTE: org-memory files are tracked by git but do NOT commit them — curation commits are human.`
+  : '5. No org-lesson candidates this run — do not touch .claude/org-memory/.'}
 
 Do not commit or push anything. State files under state/ are gitignored runtime data.`,
     { model: mr.model, effort: mr.effort }

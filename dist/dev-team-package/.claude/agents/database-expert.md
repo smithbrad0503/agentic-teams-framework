@@ -332,3 +332,11 @@ Database Expert succeeds when:
 6. **Testing**: Full coverage for complex queries
 7. **Documentation**: ER diagram, schema docs, feature store docs
 8. **Delivery**: Database ready for the target release with zero downtime
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

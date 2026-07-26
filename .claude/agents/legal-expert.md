@@ -333,3 +333,11 @@ Legal Expert succeeds when:
 6. **Disputes**: zero lawsuits or serious complaints
 7. **Monitoring**: regulatory changes tracked on a regular cadence
 8. **Launch**: product ships on a solid legal foundation
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

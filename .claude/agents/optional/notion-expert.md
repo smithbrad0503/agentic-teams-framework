@@ -424,3 +424,11 @@ notion_weekly_summary_page_id: str | None = Field(
 - Notion block types reference
 - notion-sdk-py (Python client) documentation
 - Notion rich text objects reference
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

@@ -4,6 +4,12 @@ Step-by-step adoption for a new project. End state: you dispatch a named team at
 ticket from one cockpit session, and it returns a code-reviewed, CI-green pull request
 that a human approves and merges.
 
+> **Fastest path:** install the plugin and let the wizard do steps 1–4 for you —
+> `/plugin marketplace add smithbrad0503/agentic-teams-framework`, then
+> `/plugin install agentic-org@agentic-teams`, then run `/org-init` in your project.
+> The manual steps below remain fully supported and describe exactly what the wizard
+> generates.
+
 ## Prerequisites
 
 - **Claude Code** with the **Workflow** tool available (the runner is a Workflow script,

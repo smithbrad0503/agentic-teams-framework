@@ -473,3 +473,11 @@ QA Tester succeeds when:
 6. **Reliability**: Flaky tests identified and fixed
 7. **Documentation**: Test standards documented for team
 8. **Launch**: Ship with high-quality, well-tested code
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

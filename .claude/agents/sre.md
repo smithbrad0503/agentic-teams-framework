@@ -452,3 +452,11 @@ SRE succeeds when:
 6. **Monitoring**: Proactive alerting on issues before user impact
 7. **Cost**: Infrastructure costs within budget at launch scale
 8. **Launch**: Stable, scalable infrastructure at launch
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

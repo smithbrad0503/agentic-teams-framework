@@ -1,0 +1,13 @@
+{
+  "name": "agentic-teams",
+  "owner": {
+    "name": "Bradley Smith"
+  },
+  "plugins": [
+    {
+      "name": "agentic-org",
+      "source": "./",
+      "description": "Config-driven agentic team orchestration: /org-init materializes a project-owned org; teams return gated, CI-green PRs that only humans merge."
+    }
+  ]
+}

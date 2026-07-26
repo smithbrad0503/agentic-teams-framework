@@ -26,6 +26,9 @@ roster, no external dependencies beyond the tools listed below.
   agents/                      tech-lead, backend-expert, frontend-expert, api-expert,
                                database-expert, qa-tester, code-reviewer, debug-expert,
                                docs-author, github-expert  (+ AGENTS.md registry)
+  org-memory/                  decisions.md, architecture.md, lessons.md — cross-team
+                               facts injected into every run's decompose and review
+                               stages; runs append lesson candidates, humans curate
 ```
 
 ## Fastest install: hand it to an agent

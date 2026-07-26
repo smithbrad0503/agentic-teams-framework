@@ -22,8 +22,13 @@
 -->
 
 ## Map
-<!-- Where things live. One line per zone. Backtick any directory path — the pack
-     test verifies backticked `dir/` pointers actually exist in the repo. -->
+<!-- Where things live. One line per zone. Backtick any directory path — this
+     repo's own pytest suite (tests/test_context_packs.py) verifies backticked
+     `dir/` pointers exist, but only when run inside a real project checkout.
+     scripts/validate_org.py — the hard gate /org-init and /org-update actually
+     run — does NOT check pointer existence, so a wrong path won't block a
+     materialized org. Get the paths right; nothing downstream will catch it
+     for you at gate time. -->
 - <subsystem>: `path/to/dir/` — one-line description of what's there and how it's wired
 - <subsystem>: `path/to/other/` — pointer, not a paste
 - Tests: `tests/` — where this team's tests live; regression pins in `tests/regression/`

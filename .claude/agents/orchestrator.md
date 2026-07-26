@@ -351,3 +351,11 @@ The orchestrator succeeds when:
 6. **Compliance**: zero compliance escalations from users
 7. **Team**: all agents deliver on assigned tasks with minimal escalations
 8. **Learning**: continuous-improvement metrics show velocity increasing each sprint
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

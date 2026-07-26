@@ -497,3 +497,11 @@ Debug Expert succeeds when:
 6. **Documentation**: Common issues documented for future reference
 7. **Uptime**: High production uptime during peak-traffic periods
 8. **Launch**: Ship with proven stability
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

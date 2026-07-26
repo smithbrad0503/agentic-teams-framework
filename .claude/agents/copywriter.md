@@ -327,3 +327,11 @@ Copywriter succeeds when:
 6. **Voice**: consistent brand voice across all content
 7. **Accuracy**: fact-checked, zero misleading claims
 8. **Support**: content measurably supports acquisition and retention
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

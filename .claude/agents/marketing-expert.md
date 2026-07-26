@@ -375,3 +375,11 @@ Marketing Expert succeeds when:
 6. **Content**: content calendar delivered on schedule (via copywriter)
 7. **Brand**: positive sentiment in the target community
 8. **Compliance**: zero shipped claims that fail legal review
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->
