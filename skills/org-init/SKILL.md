@@ -28,6 +28,7 @@ Run each check; on failure STOP and give the plain-language fix:
 | GitHub CLI | `gh auth status` | "Install the GitHub CLI and run `gh auth login` — team-runs open PRs via `gh`." |
 | Worktrees | `git worktree list` | "Your git is too old — team-runs isolate work in worktrees (git ≥ 2.5)." |
 | jq | `jq --version` | "Install `jq` — the `/team` board updates use it." |
+| Python 3 + PyYAML | `python3 -c "import yaml"` | "Install Python 3 and `pip3 install pyyaml` — the validator in step 8 needs both." |
 
 Also note (warn, don't block): if the repo has no CI configured on PRs, the
 ci-green gate will report red on every run — recommend adding at least a test
@@ -84,7 +85,8 @@ roster names them — the runner hard-requires those three agentTypes.
 Build EVERYTHING under `.claude/.org-init-staging/` first. Only after all
 generation succeeds, move files into their real `.claude/` locations
 (extend-mode: skip existing files and record the skip), then delete the staging
-dir. A failed generation must leave the project untouched.
+dir. A failed generation must leave the project untouched: on failure, remove
+the staging directory before reporting the error.
 
 Generate, each file with its provenance header:
 
@@ -102,16 +104,20 @@ Generate, each file with its provenance header:
    `routing: {}`.
 3. **Context packs** → `teams/context-packs/<team>.md`: first line
    `# Context Pack — <team>`, provenance on line 2, staleness line with today's
-   date and "(org-init)", then `## Map` / `## Trip-wires` / `## Current state`
-   from the scan. For a fresh org, Current state = "fresh org — nothing in
-   flight". HARD CAP 12,000 chars.
+   date and "(org-init)" — this line MUST contain the literal token
+   `Staleness:`; follow the shape of
+   `${CLAUDE_PLUGIN_ROOT}/.claude/teams/context-packs/TEMPLATE.md` — then
+   `## Map` / `## Trip-wires` / `## Current state` from the scan. For a fresh
+   org, Current state = "fresh org — nothing in flight". HARD CAP 12,000
+   chars.
 4. **Team memory seeds** → `teams/memory/<team>.md`: first line
    `# Team lessons — <team>`, provenance on line 2.
 5. **Org memory** → copy the three files from
    `${CLAUDE_PLUGIN_ROOT}/.claude/org-memory/` (keep their canonical first
    lines; provenance on line 2; keep the `## Candidates (pending curation)`
    heading in lessons.md). Seed decisions.md with 1–3 dated entries from the
-   interview (stack choice, org shape).
+   interview (stack choice, org shape). Every org-memory file is capped at
+   8,000 chars — stay under it.
 6. **Runner** → copy `workflows/team-run.js` VERBATIM, with the provenance
    comment prepended as line 1 (`// agentic-org: v<version> source=…`, above
    `export const meta`). Change nothing else — this file is library-synced.
@@ -120,8 +126,9 @@ Generate, each file with its provenance header:
 8. **Command** → copy `commands/team.md` → `.claude/commands/team.md` with
    provenance after the H1 (the project keeps `/team` even without the plugin).
 9. **Routing** → `teams/model-routing.yaml` from the library file with
-   `strong` / `mid` / `cheap` replaced by the user's identifiers. NEVER give
-   `review` a weaker model than `decompose`.
+   `strong` / `mid` / `cheap` replaced by the user's identifiers. The `review`
+   stage MUST use the same model as `decompose`, and `review`'s effort MUST be
+   `high`, `xhigh`, or `max`.
 10. **State dir** → `teams/state/.gitkeep` (empty file).
 
 ## 7. Wire the project
