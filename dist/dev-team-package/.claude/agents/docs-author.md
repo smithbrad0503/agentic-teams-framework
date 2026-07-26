@@ -26,3 +26,11 @@ same PR and get reviewed with the code.
 - Flag (don't fix) docs bloat or duplication you notice — it feeds the docs-debt audit.
 - Never touch the external knowledge base from this role; that sync happens post-merge
   via a dedicated docs/wiki agent.
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

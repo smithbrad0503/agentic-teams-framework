@@ -27,8 +27,10 @@ Agentic Teams Framework (design: docs/design.md).
    printf '%s\n' "{\"ts\":\"$TS\",\"run\":\"$RUN_ID\",\"team\":\"<team>\",\"type\":\"dispatched\",\"ticket\":\"<ticket>\"}" >> $S/events.jsonl
    ```
 4. **Resolve config**: Read `.claude/teams/<team>.yaml`, `.claude/teams/model-routing.yaml`,
-   the pack file named by `context_pack`, and `.claude/teams/memory/<team>.md`. Build
-   `config = {mission, roster, ownership, routing, pack, memory}` where `routing` =
+   the pack file named by `context_pack`, `.claude/teams/memory/<team>.md`, and the
+   `.claude/org-memory/` files (decisions.md + architecture.md + lessons.md concatenated
+   in that order; "" if the directory is absent). Build
+   `config = {mission, roster, ownership, routing, pack, memory, orgMemory}` where `routing` =
    global `defaults` with the team yaml's `routing` overrides merged on top (team wins).
 5. **Invoke** (background by default):
    `Workflow({name: 'team-run', args: {team, ticket, brief, size, runId: RUN_ID, timestamp: TS, config}})`

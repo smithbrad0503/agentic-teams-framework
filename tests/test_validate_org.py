@@ -189,6 +189,46 @@ def test_team_review_override_low_effort_fails(tmp_path: Path) -> None:
     assert run(root) == 1
 
 
+def test_budget_defaults_non_numeric_fails(tmp_path: Path) -> None:
+    """A string budget value must produce a normal error, not a TypeError crash."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "budget_defaults: { small: 80000, medium: 200000, large: 500000 }",
+        "budget_defaults: { small: '80000', medium: 200000, large: 500000 }",
+    ))
+    assert run(root) == 1
+
+
+def test_routing_as_list_fails(tmp_path: Path) -> None:
+    """A team yaml with routing as a list (not a mapping) must not crash with AttributeError."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace("routing: {}", "routing: [review, decompose]"))
+    assert run(root) == 1
+
+
+def test_ownership_zone_empty_string_fails(tmp_path: Path) -> None:
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace("  - src/\n", "  - ''\n"))
+    assert run(root) == 1
+
+
+def test_ownership_zone_dotdot_fails(tmp_path: Path) -> None:
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace("  - src/\n", "  - ../..\n"))
+    assert run(root) == 1
+
+
+def test_ownership_zone_absolute_path_fails(tmp_path: Path) -> None:
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace("  - src/\n", "  - /etc\n"))
+    assert run(root) == 1
+
+
 def test_agents_dir_readme_without_frontmatter_passes(tmp_path: Path) -> None:
     """Non-agent documentation (no YAML frontmatter) in .claude/agents/ is skipped, not rejected."""
     root = make_valid_org(tmp_path)

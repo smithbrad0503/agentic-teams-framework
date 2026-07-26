@@ -274,3 +274,11 @@ Tech Lead succeeds when:
 6. **Team**: Engineers understand patterns and implement them consistently
 7. **Innovation**: Technical debt managed, no critical blockers
 8. **Delivery**: Releases ship on time with stable infrastructure
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

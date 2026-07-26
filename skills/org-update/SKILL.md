@@ -17,10 +17,13 @@ materialized org here — run /org-init instead" and stop.
 ## 2. Build the provenance map
 
 Scan every file under the project's `.claude/` whose first 12 lines match
-`agentic-org: v<version> source=<library-relative-path>`. Record
-`{file, materializedVersion, librarySource}`. Files WITHOUT a provenance header
-are user-authored — never touch them. Current library version: `version` in
-`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`.
+`agentic-org: v<version> source=<path>`. Record
+`{file, materializedVersion, librarySource}`. `<path>` (and therefore
+`librarySource`) is always relative to `${CLAUDE_PLUGIN_ROOT}` (the plugin root) —
+e.g. `.claude/agents/tech-lead.md`, never `agents/tech-lead.md` — matching how
+`/org-init` writes it (see its provenance-header section). Files WITHOUT a
+provenance header are user-authored — never touch them. Current library
+version: `version` in `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`.
 
 ## 3. Classify
 

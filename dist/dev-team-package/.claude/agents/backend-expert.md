@@ -329,3 +329,11 @@ Backend Expert succeeds when:
 6. **Documentation**: OpenAPI spec complete with examples
 7. **Reliability**: No unhandled exceptions, proper error responses
 8. **Scalability**: Database queries optimized, no N+1 problems
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

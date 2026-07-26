@@ -17,7 +17,9 @@ the `/org-init` wizard writes for you.
 /plugin install agentic-org@agentic-teams
 ```
 
-Then, inside the project you want to staff, run `/org-init`. It interviews you
+Then, inside the project you want to staff, run `/org-init` (installed plugin skills are
+namespaced as `/agentic-org:org-init` and `/agentic-org:org-update`; the short form works
+as long as it's unambiguous in your session). It interviews you
 (product, stack, org functions, model tiers), scans the repo, and materializes a
 customized org into `.claude/` — agents, team yamls, context packs, org memory, the
 runner, and any workflow recipes you opt into. The project **owns** the output; it keeps

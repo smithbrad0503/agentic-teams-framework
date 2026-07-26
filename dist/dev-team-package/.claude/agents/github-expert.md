@@ -357,3 +357,11 @@ github-lambda = [
 - GitHub Actions documentation
 - GitHub Webhooks documentation
 - The official GitHub Actions maintained by AWS (aws-actions)
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

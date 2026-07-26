@@ -79,6 +79,15 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
     if not zones:
         errs.append(f"{path}: ownership zones required")
     for zone in zones:
+        if not isinstance(zone, str) or not zone.strip():
+            errs.append(f"{path}: ownership zone must be a non-empty string: {zone!r}")
+            continue
+        if Path(zone).is_absolute():
+            errs.append(f"{path}: ownership zone must be a relative path: {zone!r}")
+            continue
+        if ".." in Path(zone).parts:
+            errs.append(f"{path}: ownership zone must not contain '..' segments: {zone!r}")
+            continue
         if not (claude.parent / zone).exists():
             errs.append(f"{path}: ownership zone does not exist: {zone}")
     pack_rel = cfg.get("context_pack") or ""
@@ -87,17 +96,25 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
     if cfg.get("gates") != ["code-review", "ci-green"]:
         errs.append(f"{path}: gates must be [code-review, ci-green]")
     budgets = cfg.get("budget_defaults") or {}
-    if set(budgets) != {"small", "medium", "large"} or not (
-        budgets.get("small", 0) < budgets.get("medium", 0) < budgets.get("large", 0)
-    ):
+    budget_values_numeric = all(
+        isinstance(budgets.get(k), (int, float)) and not isinstance(budgets.get(k), bool)
+        for k in ("small", "medium", "large")
+    )
+    if set(budgets) != {"small", "medium", "large"} or not budget_values_numeric:
+        errs.append(f"{path}: budget_defaults must define small, medium, large as numbers")
+    elif not (budgets["small"] < budgets["medium"] < budgets["large"]):
         errs.append(f"{path}: budget_defaults must define small < medium < large")
-    for stage, entry in (cfg.get("routing") or {}).items():
-        if stage not in STAGE_CLASSES:
-            errs.append(f"{path}: unknown routing stage class {stage!r}")
-        elif not isinstance(entry, dict) or not entry.get("model") or entry.get("effort") not in VALID_EFFORTS:
-            errs.append(f"{path}: bad routing entry for {stage!r}")
-        elif stage == "review" and entry.get("effort") not in REVIEW_EFFORTS:
-            errs.append(f"{path}: review gate requires high/xhigh/max effort")
+    routing = cfg.get("routing")
+    if routing is not None and not isinstance(routing, dict):
+        errs.append(f"{path}: routing must be a mapping of stage -> {{model, effort}}")
+    else:
+        for stage, entry in (routing or {}).items():
+            if stage not in STAGE_CLASSES:
+                errs.append(f"{path}: unknown routing stage class {stage!r}")
+            elif not isinstance(entry, dict) or not entry.get("model") or entry.get("effort") not in VALID_EFFORTS:
+                errs.append(f"{path}: bad routing entry for {stage!r}")
+            elif stage == "review" and entry.get("effort") not in REVIEW_EFFORTS:
+                errs.append(f"{path}: review gate requires high/xhigh/max effort")
     return errs
 
 

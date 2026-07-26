@@ -13,10 +13,30 @@ it keeps working if the plugin is uninstalled.
 - Plugin version (for provenance headers): the `version` field of
   `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`
 - Provenance header, added to EVERY generated file:
-  - markdown: `<!-- agentic-org: v<version> source=<library-relative-path> -->` placed
+  - markdown: `<!-- agentic-org: v<version> source=<path> -->` placed
     on the line after the H1 title (or after the closing frontmatter `---` when the
     file has frontmatter)
-  - yaml: `# agentic-org: v<version> source=<library-relative-path>` as line 1
+  - yaml: `# agentic-org: v<version> source=<path>` as line 1
+  - **`source=<path>` is always relative to `${CLAUDE_PLUGIN_ROOT}` (the plugin root),
+    NEVER relative to the `.claude/` library subdirectory.** Concretely: prepend
+    `.claude/` to the file's path inside the library. `/org-update` resolves upstream
+    files as `${CLAUDE_PLUGIN_ROOT}/<source>` and as `git show v<version>:<source>` —
+    both need the plugin-root-relative form, so getting this wrong breaks every future
+    sync. One worked example per file type the wizard writes:
+
+    | Generated file | Library file it came from | Correct `source=` |
+    |---|---|---|
+    | `agents/tech-lead.md` | `${CLAUDE_PLUGIN_ROOT}/.claude/agents/tech-lead.md` | `.claude/agents/tech-lead.md` |
+    | `teams/dev.yaml` (from TEMPLATE) | `${CLAUDE_PLUGIN_ROOT}/.claude/teams/TEMPLATE.yaml` | `.claude/teams/TEMPLATE.yaml` |
+    | `teams/context-packs/dev.md` (from TEMPLATE) | `${CLAUDE_PLUGIN_ROOT}/.claude/teams/context-packs/TEMPLATE.md` | `.claude/teams/context-packs/TEMPLATE.md` |
+    | `org-memory/decisions.md` | `${CLAUDE_PLUGIN_ROOT}/.claude/org-memory/decisions.md` | `.claude/org-memory/decisions.md` |
+    | `workflows/team-run.js` | `${CLAUDE_PLUGIN_ROOT}/.claude/workflows/team-run.js` | `.claude/workflows/team-run.js` |
+    | `workflows/health-check.js` (a recipe) | `${CLAUDE_PLUGIN_ROOT}/.claude/workflows/recipes/health-check.js` | `.claude/workflows/recipes/health-check.js` |
+    | `commands/team.md` | `${CLAUDE_PLUGIN_ROOT}/.claude/commands/team.md` | `.claude/commands/team.md` |
+
+    Note the recipe case: the generated file moves from `workflows/recipes/` to
+    `workflows/`, but `source=` still points at the library's `workflows/recipes/`
+    path, since that's where the upstream actually lives.
 
 ## 1. Prerequisites (hard gate)
 
@@ -96,6 +116,13 @@ Generate, each file with its provenance header:
    `<!-- PROJECT-CONTEXT:BEGIN -->` and `<!-- PROJECT-CONTEXT:END -->` with
    project specifics — stack, the key paths for this agent's remit, project
    commands, conventions. Leave everything outside the markers untouched.
+   The materialized `AGENTS.md` lists the FULL library roster even though only
+   some agents were staffed — a team lead reading it could route to an
+   agentType that doesn't exist in this project. Prepend a short header note
+   (2-3 lines, above the existing content) naming which agents were actually
+   materialized in this project (`ls .claude/agents/*.md`) versus which remain
+   available in the library only (install via `/org-update` or by hand). Do
+   NOT rewrite the rest of the registry.
 2. **Teams** → `teams/<team>.yaml` from `teams/TEMPLATE.yaml` (drop the
    template comments): name = filename stem, type/output per the table,
    one-line mission from the interview, roster, REAL ownership zones (every
@@ -157,6 +184,16 @@ installed, and a first-dispatch example using the user's ticket convention:
 
 ```
 /team dispatch <team> <TICKET-1> "<one concrete starter task from the interview>" small
+```
+
+If any recipes were installed, also show how to invoke each one — they run
+directly through the Workflow tool (not `/team`), and every one needs a
+dispatcher-supplied `timestamp` (workflow scripts cannot call `Date`):
+
+```
+Workflow({name: 'health-check', args: {checks: [{name: 'api-up', instructions: 'curl the /health endpoint and confirm 200'}], timestamp: '<ISO8601 now>'}})
+Workflow({name: 'retro', args: {timestamp: '<ISO8601 now>', lookback: 15}})
+Workflow({name: 'audit', args: {target: 'src/auth/', checklist: ['secrets in code', 'unvalidated input reaching queries'], timestamp: '<ISO8601 now>'}})
 ```
 
 Offer to commit the org on a feature branch (`chore/agentic-org-init`) — never
