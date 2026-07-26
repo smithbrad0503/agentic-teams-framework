@@ -30,7 +30,9 @@ are user-authored — never touch them. Current library version: `version` in
   line itself).
 - **Agents**: upstream is the library agent, BUT the project's PROJECT-CONTEXT
   block content is sacred. Proposed file = new library body with the project's
-  existing block body re-inserted between the markers. Diff proposed vs project.
+  existing block body re-inserted between the markers
+  (`<!-- PROJECT-CONTEXT:BEGIN -->` / `<!-- PROJECT-CONTEXT:END -->`).
+  Diff proposed vs project.
 - **Project-owned** (team yamls, context packs, team memory, org-memory,
   model-routing): NEVER auto-updated — only mention when their library TEMPLATE
   changed materially, and let the user apply ideas by hand.
@@ -40,8 +42,20 @@ are user-authored — never touch them. Current library version: `version` in
 For each update candidate: show a short summary + the diff (proposed vs
 current). If the project copy contains edits the library doesn't explain
 (hand-customization beyond the PROJECT-CONTEXT block), flag it CUSTOMIZED and
-present a three-way summary instead of a clean diff. Apply ONLY accepted files;
-update each applied file's provenance line to the current version.
+present a three-way summary instead of a clean diff. Recover the historical
+library body — the file's content in the library at `materializedVersion` —
+via `git -C "${CLAUDE_PLUGIN_ROOT}" show v<materializedVersion>:<librarySource>`
+(plugin releases are tagged `v<semver>`). The three-way summary compares the
+historical library body (common ancestor), the current library body (upstream
+change), and the project's current file (local change), reporting which hunks
+came from upstream, which are local edits, and where the two overlap. If the
+historical body cannot be recovered (tag missing, plugin not a git checkout,
+or the command fails), degrade to a plain two-way diff of proposed vs current,
+label the file `CUSTOMIZED (baseline unavailable)`, and state plainly in the
+report that upstream changes and local edits could not be separated for that
+file — the safety guarantee is unchanged either way: nothing is applied
+without explicit acceptance. Apply ONLY accepted files; update each applied
+file's provenance line to the current version.
 
 ## 5. Validate and report
 
