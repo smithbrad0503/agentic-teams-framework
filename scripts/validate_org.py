@@ -26,6 +26,7 @@ STAGE_CLASSES = {
     "mechanical", "review", "revision-fix", "librarian",
 }
 TIER_PLACEHOLDERS = {"strong", "mid", "cheap"}
+REVIEW_EFFORTS = {"high", "xhigh", "max"}
 ORG_MEMORY_HEADERS = {
     "decisions.md": "# Org decisions",
     "architecture.md": "# Org architecture facts",
@@ -95,6 +96,8 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
             errs.append(f"{path}: unknown routing stage class {stage!r}")
         elif not isinstance(entry, dict) or not entry.get("model") or entry.get("effort") not in VALID_EFFORTS:
             errs.append(f"{path}: bad routing entry for {stage!r}")
+        elif stage == "review" and entry.get("effort") not in REVIEW_EFFORTS:
+            errs.append(f"{path}: review gate requires high/xhigh/max effort")
     return errs
 
 
@@ -108,14 +111,19 @@ def validate_routing(claude: Path) -> list[str]:
     except yaml.YAMLError as exc:
         return [f"{path}: unparseable yaml ({exc})"]
     if set(defaults) != STAGE_CLASSES:
-        return [f"{path}: defaults must cover exactly the stage classes {sorted(STAGE_CLASSES)}"]
+        errs.append(f"{path}: defaults must cover exactly the stage classes {sorted(STAGE_CLASSES)}")
+    valid_entries: dict[str, dict] = {}
     for stage, entry in defaults.items():
         if not isinstance(entry, dict) or not entry.get("model") or entry.get("effort") not in VALID_EFFORTS:
             errs.append(f"{path}: bad entry for {stage!r}")
-            return errs
-    if defaults["review"]["model"] != defaults["decompose"]["model"]:
-        errs.append(f"{path}: review must route to the strongest tier (same model as decompose)")
-    for stage, entry in defaults.items():
+            continue
+        valid_entries[stage] = entry
+    if "review" in valid_entries and "decompose" in valid_entries:
+        if valid_entries["review"]["model"] != valid_entries["decompose"]["model"]:
+            errs.append(f"{path}: review must route to the strongest tier (same model as decompose)")
+    if "review" in valid_entries and valid_entries["review"]["effort"] not in REVIEW_EFFORTS:
+        errs.append(f"{path}: review gate requires high/xhigh/max effort")
+    for stage, entry in valid_entries.items():
         if entry["model"] in TIER_PLACEHOLDERS:
             errs.append(f"{path}: {stage}: placeholder tier {entry['model']!r} not replaced with a real model identifier")
     return errs
@@ -211,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
             for agent_path in sorted(agents_dir.rglob("*.md")):
                 if agent_path.name == "AGENTS.md":
                     continue
+                lines = agent_path.read_text().splitlines()
+                if not lines or lines[0].strip() != "---":
+                    continue  # documentation (e.g. README.md), not an agent definition
                 errs += validate_agent(agent_path)
                 check_provenance(agent_path, errs)
 

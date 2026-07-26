@@ -32,6 +32,18 @@ defaults:
   librarian:    { model: haiku, effort: low }
 """
 
+ALL_CHEAP_ROUTING = """# agentic-org: v0.1.0 source=.claude/teams/model-routing.yaml
+defaults:
+  decompose:    { model: haiku, effort: low }
+  implement:    { model: haiku, effort: low }
+  write-tests:  { model: haiku, effort: low }
+  docs-author:  { model: haiku, effort: low }
+  mechanical:   { model: haiku, effort: low }
+  review:       { model: haiku, effort: low }
+  revision-fix: { model: haiku, effort: low }
+  librarian:    { model: haiku, effort: low }
+"""
+
 TEAM = """# agentic-org: v0.1.0 source=.claude/teams/TEMPLATE.yaml
 name: dev
 type: delivery
@@ -151,3 +163,36 @@ def test_missing_org_memory_fails(tmp_path: Path) -> None:
     root = make_valid_org(tmp_path)
     (root / ".claude" / "org-memory" / "lessons.md").unlink()
     assert run(root) == 1
+
+
+def test_all_stages_cheap_including_review_fails(tmp_path: Path) -> None:
+    """Every stage (including review) routed to the same cheap model with low effort.
+
+    The relative review==decompose model check alone would pass this (both stages
+    route to the same model), which is the false negative from Finding 1. The
+    review-effort floor must catch it independently of model choice.
+    """
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "model-routing.yaml"
+    target.write_text(ALL_CHEAP_ROUTING)
+    assert run(root) == 1
+
+
+def test_team_review_override_low_effort_fails(tmp_path: Path) -> None:
+    """A team yaml cannot demote the review gate's effort via a per-team override."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "routing: {}",
+        "routing: { review: { model: opus, effort: low } }",
+    ))
+    assert run(root) == 1
+
+
+def test_agents_dir_readme_without_frontmatter_passes(tmp_path: Path) -> None:
+    """Non-agent documentation (no YAML frontmatter) in .claude/agents/ is skipped, not rejected."""
+    root = make_valid_org(tmp_path)
+    (root / ".claude" / "agents" / "README.md").write_text(
+        "# Agents\n\nSee individual files in this directory for role definitions.\n"
+    )
+    assert run(root) == 0
