@@ -44,6 +44,10 @@ export const meta = {
 //   merges and NEVER pushes to the default branch. Merge approval is always human.
 // =============================================================================
 
+// Runner identity. BUMP THIS WITH .claude-plugin/plugin.json's version — it rides in
+// every telemetry record so a deployed (possibly forked) copy can report what it is.
+const RUNNER_VERSION = '0.2.0'
+
 // ---- args contract -------------------------------------------------------
 // {
 //   team: 'backend',                          // matches .claude/teams/<team>.yaml
@@ -53,7 +57,8 @@ export const meta = {
 //   runId: 'backend-ticket-123-20260101T1030',// dispatcher-generated (no Date in scripts)
 //   timestamp: '2026-01-01T10:30:00-05:00',   // dispatcher-generated
 //   config?: { mission, roster, ownership, routing, pack, memory },  // injected by /team dispatch
-//   maxRounds?: 3,
+//   maxRounds?: 3,                            // review-gate budget (legacy name)
+//   maxReviewRounds?: 3, maxCiAttempts?: 3, maxGateRounds?: 6,  // per-gate budgets
 //   fixtures?: { '<stage label>': <canned result> },  // presence ⇒ DRY RUN
 // }
 // Some callers deliver args as a JSON string — normalize before validating.
@@ -72,6 +77,13 @@ const missing = ['team', 'ticket', 'brief', 'runId', 'timestamp'].filter((k) => 
 if (missing.length) return { error: `team-run: missing required args: ${missing.join(', ')}` }
 
 const MAX_ROUNDS = A.maxRounds || 3
+// Review and CI are independent gates and get independent budgets: a mechanical CI
+// fix must not spend a review round. Defaults reproduce v0.1.0 behaviour (3 review
+// rounds, 3 CI attempts); maxRounds still sets the review budget for older callers.
+const MAX_REVIEW_ROUNDS = A.maxReviewRounds || MAX_ROUNDS
+const MAX_CI_ATTEMPTS = A.maxCiAttempts || 3
+// Overall ceiling on gate iterations so decoupling the two budgets cannot run away.
+const MAX_GATE_ROUNDS = A.maxGateRounds || MAX_REVIEW_ROUNDS + MAX_CI_ATTEMPTS
 const DRY = !!A.fixtures
 const BRANCH = `${A.ticket.toLowerCase()}-${A.team}`
 const trace = []
@@ -140,10 +152,17 @@ const persist = async (statusVal, opts = {}) => {
   const m = (cfg && cfg.routing && cfg.routing.mechanical) || { model: 'sonnet', effort: 'low' }
   const runObj = {
     runId: A.runId, team: A.team, ticket: A.ticket, size: A.size || 'medium',
+    runnerVersion: RUNNER_VERSION,
     timestamp: A.timestamp, branch: BRANCH, pr: opts.pr || '', status: statusVal,
     stage: opts.stage || '', stages,
   }
-  const evt = { ts: A.timestamp, run: A.runId, team: A.team, type: 'blocked', ticket: A.ticket, pr: opts.pr || '' }
+  // The event type carries the ACTUAL terminal status — hardcoding 'blocked' here made
+  // 'ill-specified' indistinguishable from a stage failure in events.jsonl.
+  const evt = {
+    ts: A.timestamp, run: A.runId, team: A.team,
+    type: statusVal === 'pr-ready' ? 'pr_opened' : statusVal,
+    ticket: A.ticket, pr: opts.pr || '',
+  }
   await call(
     'report:state:early',
     'Report',
@@ -219,6 +238,7 @@ const BUILD_SCHEMA = {
     branch: { type: 'string' },
     summary: { type: 'string' },
     testsRun: { type: 'string' },
+    touchedSource: { type: 'boolean', description: 'true if this change touched anything a reviewer must re-bless: non-test source, or an existing test assertion. false ONLY for review-neutral work (CI config, formatting, lockfiles, purely additive tests). When in doubt, true.' },
     outOfZoneNeeds: { type: 'array', items: { type: 'string' } },
     lessons: { type: 'array', items: { type: 'string' } },
     orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
@@ -246,6 +266,22 @@ const REVIEW_SCHEMA = {
     securityOrCorrectnessOk: { type: 'boolean' },
     mustFix: { type: 'array', items: { type: 'string' } },
     nits: { type: 'array', items: { type: 'string' } },
+    // Round >=2 only (optional, so an approving round-1 review stays schema-valid):
+    // the per-item verdict on the PREVIOUS round's must-fix list. Makes convergence
+    // measurable in telemetry instead of inferable from findings that never repeat.
+    resolvedPriorItems: {
+      type: 'array',
+      description: 'one entry per prior-round must-fix item: was it actually resolved on this branch?',
+      items: {
+        type: 'object',
+        properties: {
+          item: { type: 'string' },
+          resolved: { type: 'boolean' },
+          note: { type: 'string' },
+        },
+        required: ['item', 'resolved'],
+      },
+    },
     lessons: { type: 'array', items: { type: 'string' } },
     orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
   },
@@ -414,69 +450,119 @@ ${GUARDRAILS}`,
 )
 if (!docsRes) return await blocked('docs')
 
-// ---- Gates: review + CI, bounded revision loop --------------------------
+// ---- Gates: review + CI, each with its OWN bounded budget ---------------
+// The two gates are independent, so the loop re-enters at the gate that failed
+// instead of restarting at review. A mechanical CI fix no longer costs a review
+// round — which mattered because a review round is a full audit, not a re-check.
 phase('Gates')
 const rr = r('review')
 const fr = r('revision-fix')
 const mr = r('mechanical')
 const history = []
-let round = 0
+let gate = 'review'   // which gate the loop (re-)enters next
+let gateSteps = 0     // total gate iterations, review + CI (the overall ceiling)
+let reviewRounds = 0
 let ciAttempts = 0
+let reviewOk = false
+let ciOk = false
 let clean = false
+// unverified*: a fix has been pushed to the branch that THIS gate has not looked at
+// since. It is the difference between "we checked HEAD" and "we are guessing".
+let unverifiedReview = false
+let unverifiedCi = false
+let outstanding = []  // the must-fix list the most recent revision was told to address
 
-while (round < MAX_ROUNDS && !clean) {
-  round++
-  const review = await call(
-    `review#${round}`,
-    'Gates',
-    `Code-review **PR #${pr}** (branch \`${BRANCH}\`) for ${A.ticket}. First mark it ready for review (\`gh pr ready ${pr}\`), then check out the branch in your worktree.
+// Prior review rounds are RENDERED INTO the next review prompt. Without this, `history`
+// only ever reached telemetry, so every round was a fresh unbounded audit whose findings
+// were disjoint from the previous round's and the loop could not converge.
+const priorReviewBlock = () => {
+  const prior = history.filter((h) => h.gate === 'review' && h.items.length)
+  if (!prior.length) return ''
+  return `
+## Prior review rounds on THIS PR — read this BEFORE you look at the diff
+${prior.map((h) => `Round ${h.round} must-fix:\n${h.items.map((x, i) => `  ${i + 1}. ${x}`).join('\n')}`).join('\n')}
+
+You are RE-REVIEWING the revisions pushed in response to the findings above. This is a
+convergence pass, not a fresh audit:
+1. VERIFY every prior must-fix item above against the current branch, and report each one in resolvedPriorItems as {item, resolved, note}. An item you find still unresolved is the ONLY finding you may repeat in mustFix.
+2. A finding you are raising for the FIRST TIME belongs in mustFix ONLY if it is a correctness, security, or data-integrity regression introduced by the revision commits themselves (diff the commits added since the previous round). Everything else you are noticing for the first time now — documentation, consistency, naming, style, test-shape preference — goes in nits, NOT mustFix.
+3. Do not open new lines of inquiry into code an earlier round already read and did not flag. If every prior item is resolved and the revision commits introduce no new regression, APPROVE.
+`
+}
+
+// Reused verbatim by the post-loop CI confirm pass, so the two cannot drift.
+const CI_PROMPT = `Verify CI on **PR #${pr}**. Run \`gh pr checks ${pr} --watch --interval 20\` and wait for ALL checks to conclude — this gate catches what local slices miss (full test suite, custom lints, type-check). Report green=true only if every non-skipped check passed. If any failed, name EACH failing check with a one-line reason from \`gh run view <run-id> --log-failed\`. Do not fix anything. green=false with an empty failing list is not allowed.`
+
+while (!clean && gateSteps < MAX_GATE_ROUNDS) {
+  if (gate === 'review') {
+    if (reviewRounds >= MAX_REVIEW_ROUNDS) break
+    gateSteps++
+    reviewRounds++
+    const review = await call(
+      `review#${reviewRounds}`,
+      'Gates',
+      `Code-review **PR #${pr}** (branch \`${BRANCH}\`) for ${A.ticket}. First mark it ready for review (\`gh pr ready ${pr}\`), then check out the branch in your worktree.
 
 Task intent:
 ${A.brief}
 
 Focus on CORRECTNESS and SECURITY over style: does the change do what the ticket needs without introducing a regression, a silent-failure path, a security/authorization leak, or data corruption? This PR also contains test and docs commits — verify the tests actually pin the behavior and the doc changes match the code (stale docs are a must-fix). Run static analysis and the relevant tests; verify any "pre-existing failure" claim against the default branch rather than trusting it. Post a structured PR review, but the LOAD-BEARING output is your structured return: verdict (approve | request-changes) and a concrete mustFix list (empty when approving). Be strict — a plausible-but-wrong change must die here. Do NOT merge.
-
+${priorReviewBlock()}
 ## Team context pack (${A.team})
 ${cfg.pack}
 ${cfg.orgMemory ? `\n## Org memory (cross-team)\n${cfg.orgMemory}` : ''}`,
-    { agentType: 'code-reviewer', model: rr.model, effort: rr.effort, schema: REVIEW_SCHEMA }
-  )
-  if (!review || review.verdict === 'request-changes') {
-    const mustFix = review && review.mustFix && review.mustFix.length
-      ? review.mustFix
-      : ['(reviewer returned no findings — re-inspect the full diff against the brief)']
-    history.push({ round, gate: 'review', items: mustFix })
-    await call(
-      `revise#${round}`,
-      'Gates',
-      `Revise PR #${pr} for **${A.ticket}** — code review requested changes. Check out branch \`${BRANCH}\`, pull latest, address EVERY must-fix item below, push to the SAME branch.
+      { agentType: 'code-reviewer', model: rr.model, effort: rr.effort, schema: REVIEW_SCHEMA }
+    )
+    if (review) unverifiedReview = false
+    if (!review || review.verdict === 'request-changes') {
+      const mustFix = review && review.mustFix && review.mustFix.length
+        ? review.mustFix
+        : ['(reviewer returned no findings — re-inspect the full diff against the brief)']
+      history.push({
+        round: reviewRounds, gate: 'review', items: mustFix,
+        ...(review && review.resolvedPriorItems ? { resolvedPrior: review.resolvedPriorItems } : {}),
+      })
+      reviewOk = false
+      outstanding = mustFix
+      await call(
+        `revise#${reviewRounds}`,
+        'Gates',
+        `Revise PR #${pr} for **${A.ticket}** — code review requested changes. Check out branch \`${BRANCH}\`, pull latest, address EVERY must-fix item below, push to the SAME branch.
 
 ## Must-fix items
 ${mustFix.map((m, i) => `${i + 1}. ${m}`).join('\n')}
 ${GUARDRAILS}`,
-      { agentType: cfg.roster.lead, isolation: 'worktree', model: fr.model, effort: fr.effort, schema: BUILD_SCHEMA }
-    )
+        { agentType: cfg.roster.lead, isolation: 'worktree', model: fr.model, effort: fr.effort, schema: BUILD_SCHEMA }
+      )
+      // The revision moved the branch: neither gate's last verdict describes HEAD.
+      unverifiedReview = true
+      unverifiedCi = true
+      ciOk = false
+      continue
+    }
+    reviewOk = true
+    outstanding = []
+    gate = 'ci'
     continue
   }
 
-  const ci = await call(
-    `ci#${round}`,
-    'Gates',
-    `Verify CI on **PR #${pr}**. Run \`gh pr checks ${pr} --watch --interval 20\` and wait for ALL checks to conclude — this gate catches what local slices miss (full test suite, custom lints, type-check). Report green=true only if every non-skipped check passed. If any failed, name EACH failing check with a one-line reason from \`gh run view <run-id> --log-failed\`. Do not fix anything. green=false with an empty failing list is not allowed.`,
-    { model: mr.model, effort: mr.effort, schema: CI_SCHEMA }
-  )
+  if (ciAttempts >= MAX_CI_ATTEMPTS) break
+  gateSteps++
+  ciAttempts++
+  const ci = await call(`ci#${ciAttempts}`, 'Gates', CI_PROMPT, { model: mr.model, effort: mr.effort, schema: CI_SCHEMA })
+  if (ci) unverifiedCi = false
   if (!ci || !ci.green) {
-    ciAttempts++
     const failing = ci && ci.failing && ci.failing.length
       ? ci.failing
       : [{ check: 'unknown', reason: 'CI verify agent returned no detail' }]
-    history.push({ round, gate: 'ci', items: failing })
-    if (ciAttempts >= 3) break
+    history.push({ round: ciAttempts, gate: 'ci', items: failing })
+    ciOk = false
+    if (ciAttempts >= MAX_CI_ATTEMPTS) break
     // The specialist fixes CI first; if it goes red AGAIN, debug-expert gets one
     // root-cause pass; a third red blocks the run.
     const fixer = ciAttempts === 1 ? cfg.roster.lead : 'debug-expert'
-    await call(
-      `ci-fix#${round}`,
+    const ciFix = await call(
+      `ci-fix#${ciAttempts}`,
       'Gates',
       `CI is RED on PR #${pr} for **${A.ticket}** (attempt ${ciAttempts}).${fixer === 'debug-expert' ? ' A previous fix attempt did not clear it — ROOT-CAUSE the failure before touching code; do not shotgun.' : ''} Check out branch \`${BRANCH}\`, pull latest, fix the failing checks, push to the SAME branch.
 
@@ -484,26 +570,101 @@ ${GUARDRAILS}`,
 ${failing.map((f) => `- ${f.check}: ${f.reason}`).join('\n')}
 
 For each failure decide: real regression in this change, or a test/lint that must be updated for intended new behavior? NEVER weaken a test to hide a real bug.
+Report touchedSource=true if you changed non-test source OR altered an existing test's assertions (the code review gate must then re-run). Report false ONLY for review-neutral work — CI config, formatting, lockfiles, purely additive tests. When in doubt, report true.
 ${GUARDRAILS}`,
       { agentType: fixer, isolation: 'worktree', model: fr.model, effort: fr.effort, schema: BUILD_SCHEMA }
     )
+    unverifiedCi = true
+    // DECISION (D4): after a CI-only fix, does the review gate re-run?
+    // Ruling: yes, UNLESS the fixer reports touchedSource === false. Skipping review
+    // unconditionally is unsafe — this stage is explicitly permitted to edit tests, and
+    // a test weakened under CI pressure is exactly the failure the review gate exists to
+    // catch; re-running it unconditionally is what D4 is about (it re-opens a full audit
+    // over a change that may be a lockfile bump). The reported signal splits the two, and
+    // it fails SAFE: anything other than an explicit false — a missing field, an unparsed
+    // report, a null return — routes back through review.
+    const reviewNeutral = !!(ciFix && ciFix.touchedSource === false)
+    gate = reviewNeutral ? 'ci' : 'review'
+    if (!reviewNeutral) {
+      reviewOk = false
+      unverifiedReview = true
+    }
     continue
   }
-  clean = true
+  ciOk = true
+  clean = reviewOk && ciOk
+  if (!clean) gate = 'review'
 }
 
-const lastGate = history.length ? history[history.length - 1].gate : null
-const status = clean ? 'pr-ready' : lastGate === 'review' ? 'review-stalemate' : 'needs-human'
+// The loop can exit immediately after a fix that nothing has looked at, in which case the
+// terminal status describes the tree BEFORE that fix (one production run was reported
+// review-stalemate and then merged unchanged by a human — revise#3 had already fixed it).
+// Spend at most one CONFIRM-ONLY pass per gate, scoped strictly to the outstanding items,
+// so the reported status describes branch HEAD. Confirm passes never open new inquiry.
+if (!clean && unverifiedReview && outstanding.length) {
+  const confirm = await call(
+    'review:confirm',
+    'Gates',
+    `CONFIRM-ONLY re-check of **PR #${pr}** (branch \`${BRANCH}\`) for ${A.ticket}. The review-round budget is spent and a revision addressing the items below was pushed but never verified. Check out the branch and pull latest.
+
+## Outstanding must-fix items
+${outstanding.map((m, i) => `${i + 1}. ${m}`).join('\n')}
+
+Your ONLY question is whether each item above is resolved at the current branch HEAD. Report every item in resolvedPriorItems as {item, resolved, note}, the note citing the code that resolves it. Return verdict=approve if and only if EVERY item is resolved; otherwise request-changes listing ONLY the still-unresolved items in mustFix. Do NOT open any new line of inquiry, do not review code these items do not touch, and do not add new findings — anything else you notice goes in nits or nowhere. Do not push commits and do not merge.`,
+    { agentType: 'code-reviewer', model: rr.model, effort: rr.effort, schema: REVIEW_SCHEMA }
+  )
+  if (confirm) {
+    unverifiedReview = false
+    reviewOk = confirm.verdict === 'approve'
+    history.push({
+      round: reviewRounds, gate: 'review', confirm: true,
+      items: reviewOk ? [] : confirm.mustFix && confirm.mustFix.length ? confirm.mustFix : outstanding,
+      ...(confirm.resolvedPriorItems ? { resolvedPrior: confirm.resolvedPriorItems } : {}),
+    })
+  }
+}
+// A confirm-only REVIEW may never promote a run whose CI was not verified green: clearing
+// the review side at HEAD buys exactly one CI check, and only when a fix landed after the
+// last one. If that check is red or does not report, the run does not reach pr-ready.
+if (!clean && reviewOk && !ciOk && unverifiedCi) {
+  const ciConfirm = await call('ci:confirm', 'Gates', CI_PROMPT, { model: mr.model, effort: mr.effort, schema: CI_SCHEMA })
+  if (ciConfirm) {
+    unverifiedCi = false
+    ciOk = !!ciConfirm.green
+    if (!ciOk) {
+      history.push({
+        round: ciAttempts, gate: 'ci', confirm: true,
+        items: ciConfirm.failing && ciConfirm.failing.length ? ciConfirm.failing : [{ check: 'unknown', reason: 'CI confirm returned no detail' }],
+      })
+    }
+  }
+}
+clean = reviewOk && ciOk
+
+// Terminal status comes from the last gate round that actually FAILED (a clearing confirm
+// pass records an empty item list). verifiedAtHead says whether the gate that decided this
+// status looked at the current HEAD, or whether the run bounded out and this is a guess.
+const failedRounds = history.filter((h) => h.items.length)
+const lastGate = failedRounds.length ? failedRounds[failedRounds.length - 1].gate : null
+const status = clean ? 'pr-ready' : !reviewOk && lastGate === 'review' ? 'review-stalemate' : 'needs-human'
+const verifiedAtHead = clean ? true : !reviewOk ? !unverifiedReview : !unverifiedCi
 
 // ---- Report: telemetry + state writes (skipped in dry-run) ---------------
 phase('Report')
 const telemetry = {
   runId: A.runId, team: A.team, ticket: A.ticket, size: A.size || 'medium',
-  timestamp: A.timestamp, branch: BRANCH, pr, status, rounds: round, stages, history,
+  runnerVersion: RUNNER_VERSION,
+  // `rounds` stays the REVIEW-round count so pre-0.2.0 analysis keeps reading what it
+  // always read (the old single loop incremented once per review call); the CI budget
+  // and the combined step count are reported alongside it.
+  timestamp: A.timestamp, branch: BRANCH, pr, status, rounds: reviewRounds,
+  ciAttempts, gateSteps, verifiedAtHead, stages, history,
 }
 let stateNote
 if (!DRY) {
-  const eventType = status === 'pr-ready' ? 'pr_opened' : 'blocked'
+  // Emit the ACTUAL terminal status. Collapsing four distinct outcomes into 'blocked'
+  // made every convergence question unanswerable from events.jsonl.
+  const eventType = status === 'pr-ready' ? 'pr_opened' : status
   const stateRes = await withRetry(
     'report:state',
     'Report',
@@ -531,5 +692,5 @@ Do not commit or push anything. State files under state/ are gitignored runtime 
   if (!stateRes) stateNote = 'state persistence failed after retry — board/telemetry may be stale'
 }
 
-log(`team-run ${A.runId}: ${status}${pr ? ` — PR #${pr}` : ''} after ${round} gate round(s). Nothing merged.`)
+log(`team-run ${A.runId}: ${status}${pr ? ` — PR #${pr}` : ''} after ${gateSteps} gate round(s) (${reviewRounds} review / ${ciAttempts} CI)${verifiedAtHead ? '' : ' — status NOT verified at branch HEAD'}. Nothing merged.`)
 return { ...telemetry, ...(stateNote ? { stateNote } : {}), trace: DRY ? trace : undefined, note: 'Nothing merged — PR awaits human approval.' }

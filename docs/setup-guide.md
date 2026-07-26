@@ -119,8 +119,14 @@ the PR body instead. Review the PR, and merge it yourself when satisfied.
 |---|---|
 | `pr-ready` | Review passed and CI is green. PR awaits your merge. |
 | `ill-specified` | Decompose judged the brief too vague and returned questions. Refine and re-dispatch — this is a cheap, good failure. |
-| `review-stalemate` | 3 review rounds without convergence. Usually a decompose problem; inspect the unresolved findings. |
-| `needs-human` / `blocked` | A stage failed twice, or CI stayed red after fixes. The run stops and reports; no half-finished push is left behind. |
+| `review-stalemate` | The review budget (3 rounds) ran out and a confirm-only re-check found the outstanding items still unresolved. Usually a decompose problem; inspect the unresolved findings. |
+| `needs-human` / `blocked` | A stage failed twice, or CI stayed red after fixes, or the review side cleared but CI was never verified green. The run stops and reports; no half-finished push is left behind. |
+
+The review gate and the CI gate carry separate budgets (`maxReviewRounds`, `maxCiAttempts`,
+capped overall by `maxGateRounds`), so a mechanical CI fix does not consume a review round.
+Each run's telemetry records `verifiedAtHead`: `true` means a gate checked the current branch
+HEAD to produce that status, `false` means the run bounded out and the status may predate the
+last fix that was pushed.
 
 ## 8. Dry-run / crash notes
 

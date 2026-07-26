@@ -175,8 +175,9 @@ agent prompt in a team's runs, replacing cold exploration. Rules:
 ### Shared state during runs
 
 - `state/events.jsonl` — append-only cross-team feed (`contract_updated`, `pr_opened`,
-  `zone_conflict`, `blocked_on`). Runners append; team-runs read at **phase boundaries only**
-  (no polling).
+  `zone_conflict`, `blocked_on`, plus the terminal statuses `blocked`, `review-stalemate`,
+  `needs-human`, `ill-specified` — a run's end event carries its actual outcome, never a
+  collapsed one). Runners append; team-runs read at **phase boundaries only** (no polling).
 - `state/board.json` — active-runs registry; powers `/team status` with zero agent spawns.
 
 ### Memory hierarchy (one owner per layer, no duplication)
@@ -214,9 +215,14 @@ org memory (cross-team canon).
 2. implement      specialists on the run branch (worktree-isolated), sequential on one branch
 3. test           test role writes/extends tests (regression pin for high-severity bugs)
 4. docs           docs-author updates affected repo docs (ships IN the PR)
-5. review gate    code-reviewer (strong/high): findings → revision loop (max 3 rounds)
-6. CI gate        push branch, open PR, `gh pr checks --watch` — full CI, never local slices
-7. report         append telemetry + lessons; emit pr_opened; STOP (never merges)
+5. review gate    code-reviewer (strong/high): findings → revision rounds (own budget, max 3);
+                  each round is handed the prior rounds' findings and re-checks them first
+6. CI gate        push branch, open PR, `gh pr checks --watch` — full CI, never local slices;
+                  own budget (max 3 attempts), re-entered directly after a review-neutral fix
+6b. confirm pass  if a gate bounded out right after a fix, ONE confirm-only re-check of just
+                  those items, so the terminal status describes branch HEAD (`verifiedAtHead`)
+7. report         append telemetry + lessons; emit the terminal status as the event type;
+                  STOP (never merges)
 ```
 
 **Document mode** (advisory teams): same skeleton; stage 3 becomes fact-check, stage 6 becomes
@@ -229,8 +235,9 @@ a **draft** deliverable + briefing. Nothing publishes externally without human a
 |---|---|
 | Agent dies / returns null | One retry with failure context; second failure → stage `blocked`, event emitted, reported. Never silently skips. |
 | Agent throws (e.g. structured-output retry cap) | The `call()` wrapper catches the throw and returns null, so the retry/blocked policy governs — a throw never kills the run. |
-| Review loop exceeds 3 rounds | Stop, don't grind. Report "review stalemate" + unresolved findings. Usually a decompose problem. |
-| CI red after revisions | The specialist fixes CI first; a second red gets debug-expert one root-cause pass; a third red → blocked + report. No "merge anyway" path exists. |
+| Review loop exceeds 3 rounds | Stop, don't grind. The last round's fix gets one confirm-only re-check of the outstanding items (never a fresh audit); if they are still unresolved, report "review stalemate" + those findings. Usually a decompose problem. |
+| CI red after revisions | The specialist fixes CI first; a second red gets debug-expert one root-cause pass; a third red → blocked + report. CI has its own attempt budget, so a mechanical fix never spends a review round. No "merge anyway" path exists. |
+| A CI fix that edits source or existing test assertions | The review gate re-runs before the run can reach `pr-ready` — the fixer reports `touchedSource`, and anything short of an explicit `false` routes back through review. A confirm-only review can never promote a run whose CI was not separately verified green. |
 | Zone conflict mid-run | `zone_conflict` event; the junior claim pauses; the cockpit arbitrates. |
 | Crashed / interrupted run | State is persisted on every early exit; a `resumeFromRunId` resume from the last completed stage is the planned enhancement. |
 | Budget exhausted | Runs check budget at phase boundaries; stop cleanly at the last completed stage. Partial gated work, never half-implemented pushes. |

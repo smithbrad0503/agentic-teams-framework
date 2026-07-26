@@ -26,6 +26,11 @@ EVENT_TYPES = {
     "zone_conflict",
     "blocked_on",
     "done",
+    # A run's end event carries its ACTUAL terminal status (v0.2.0+), so every
+    # non-`pr-ready` run status is also a valid event type.
+    "review-stalemate",
+    "needs-human",
+    "ill-specified",
 }
 
 
@@ -67,6 +72,23 @@ def test_fixture_event() -> None:
             "pr": "42",
         }
     )
+
+
+def test_terminal_statuses_are_valid_event_types() -> None:
+    """Every non-`pr-ready` terminal status is emitted verbatim as an event type."""
+    terminal = {"blocked", "review-stalemate", "needs-human", "ill-specified"}
+    assert terminal <= RUN_STATUSES
+    assert terminal <= EVENT_TYPES
+
+
+def test_runner_does_not_collapse_the_event_type() -> None:
+    runner = (ROOT / ".claude" / "workflows" / "team-run.js").read_text()
+    assert "'pr_opened' : 'blocked'" not in runner, (
+        "the event type must not collapse four terminal statuses into 'blocked'"
+    )
+    assert "type: 'blocked'" not in runner, "the early-exit writer must not hardcode a type"
+    assert "const eventType = status === 'pr-ready' ? 'pr_opened' : status" in runner
+    assert "type: statusVal === 'pr-ready' ? 'pr_opened' : statusVal," in runner
 
 
 def test_state_dir_gitignored() -> None:
