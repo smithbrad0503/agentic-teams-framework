@@ -345,3 +345,11 @@ constructs>=10.0.0
 - Pulumi documentation
 - Kubernetes documentation
 - Container orchestration best-practices guides
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

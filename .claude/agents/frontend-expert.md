@@ -411,3 +411,11 @@ Frontend Expert succeeds when:
 6. **Accessibility**: WCAG 2.1 AA compliance on all pages
 7. **Real-time**: WebSocket updates work smoothly, no visual glitches
 8. **Delivery**: Dashboard ready for the target release
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

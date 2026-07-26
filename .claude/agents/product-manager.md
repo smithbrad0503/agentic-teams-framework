@@ -242,3 +242,11 @@ Product Manager succeeds when:
 6. **Compliance**: zero unresolved legal/compliance concerns on shipped features
 7. **Feedback**: recurring user interviews inform roadmap iterations
 8. **Launch**: launch happens on schedule with all MVP features
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

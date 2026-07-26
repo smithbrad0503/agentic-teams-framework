@@ -235,3 +235,11 @@ UX Designer succeeds when:
 6. **Compliance**: required messaging visible where obligated
 7. **Consistency**: design system used for 95%+ of components
 8. **Handoff**: frontend engineers need minimal clarification from specs
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

@@ -343,3 +343,11 @@ def test_send_message_success():
 - Block Kit Builder
 - slack-sdk for Python documentation
 - Slack App Manifests reference
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

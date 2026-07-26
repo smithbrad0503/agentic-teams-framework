@@ -125,3 +125,11 @@ Own financial-operations analytics for the product — both user-facing usage/co
 5. Create a cohort-retention analysis framework (signup-month cohorts, tier-segmented)
 6. Design a churn early-warning system (identify at-risk subscribers)
 7. Wire cost-allocation tags and per-workload budget alarms, ensuring alarms publish to a notification topic (not email-only)
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

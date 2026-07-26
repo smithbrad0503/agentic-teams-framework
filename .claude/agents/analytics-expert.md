@@ -507,3 +507,11 @@ Analytics Expert succeeds when:
 6. **Dashboards**: live metrics accessible to all teams
 7. **A/B Testing**: statistically valid tests run regularly
 8. **Launch**: launch supported by a data-driven measurement plan
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->

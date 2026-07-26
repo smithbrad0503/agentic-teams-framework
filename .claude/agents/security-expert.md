@@ -447,3 +447,11 @@ Security Expert succeeds when:
 6. **Secrets**: Zero hardcoded credentials in codebase
 7. **Monitoring**: Security events logged and alerting enabled
 8. **Launch**: Secure invite-only beta at launch
+
+## Project Context
+
+<!-- PROJECT-CONTEXT:BEGIN -->
+> Filled by /org-init with project-specific context: stack, key paths for this
+> agent's remit, project commands, and conventions. Until materialized, this
+> agent is generic.
+<!-- PROJECT-CONTEXT:END -->
