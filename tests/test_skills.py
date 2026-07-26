@@ -18,3 +18,13 @@ def test_org_init_skill() -> None:
     assert "validate_org.py" in text
     assert "PROJECT-CONTEXT:BEGIN" in text
     assert "NEVER silently overwrite" in text
+
+
+def test_org_update_skill() -> None:
+    text = read_skill("org-update")
+    assert text.startswith("---")
+    assert "name: org-update" in text
+    assert "${CLAUDE_PLUGIN_ROOT}" in text
+    assert "provenance" in text.lower()
+    assert "validate_org.py" in text
+    assert "Never" in text  # never-overwrite-silently doctrine present
