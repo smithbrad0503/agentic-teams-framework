@@ -61,6 +61,29 @@ workflow before the first dispatch.
 
 ## 2. Existing-org check (idempotence)
 
+### 2a. Refuse to run against the library itself
+
+Run this FIRST:
+
+```bash
+grep -l '"name": *"agentic-org"' .claude-plugin/plugin.json 2>/dev/null
+```
+
+If that prints a path, the current project **is the agentic-org library**, not a
+project to be staffed. **Stop immediately** and say so.
+
+Materializing here would be destructive and silent: the wizard writes customized
+agents to `.claude/agents/`, which is exactly where the library's generic agent
+identities live, so it would fill their PROJECT-CONTEXT blocks with this repo's
+context and ship project-specific agents to every adopter on the next release.
+The team-yaml check in 2b does not catch it — the library has no team yamls, so
+that check reads "no existing org" and proceeds with a fresh materialization.
+
+To exercise the delivery pipeline on the library repo itself, hand-write team
+yamls and context packs per the manual quickstart instead. Do not run this wizard.
+
+### 2b. Existing-org check
+
 Run:
 
 ```bash
