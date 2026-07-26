@@ -100,6 +100,41 @@ the org-update skill and stop) or **extend** (continue, but only ADD new
 teams/agents/recipes; skip every file that already exists and list the skips
 at the end). NEVER silently overwrite an existing org file.
 
+### 2c. Prior-Claude-Code check (runs even when 2b is empty)
+
+An empty 2b means "no org built by this wizard." It does **not** mean the
+project has no `.claude/` worth protecting. A project already using Claude Code
+commonly has hand-written agents, commands, or workflows and no team yamls at
+all — that is the single most likely adopter profile, and a fresh
+materialization would overwrite those files.
+
+Run:
+
+```bash
+ls .claude/agents/*.md .claude/commands/*.md .claude/workflows/*.js 2>/dev/null
+```
+
+If anything is listed, do **not** treat this as a clean project. Compute the
+collisions before writing anything: for every file this run would materialize,
+check whether that exact path already exists. Then show the CEO the collision
+list and offer exactly three paths:
+
+- **preserve** (default, recommended) — materialize only the files that do not
+  already exist, skip every collision, and list the skips at the end. Their
+  agents keep working; the org is built around them.
+- **back up and replace** — copy each colliding file to `<name>.pre-org-init.md`
+  first, then write. Only on explicit confirmation, naming the files.
+- **abort** — write nothing.
+
+**Never overwrite a pre-existing file without confirmation, in any mode.**
+Extend-mode's skip rule is not a substitute for this check: extend mode only
+activates when 2b finds team yamls, so a project with custom agents and no
+teams would otherwise fresh-materialize straight over them.
+
+A skipped agent is not a silent gap. If a collision means a roster agent was
+not materialized, say so in the handover — the team lead will route to that
+`agentType` and get whatever the project's own version does.
+
 ## 3. Interview (one question at a time)
 
 Use AskUserQuestion where options fit; keep it to ~6 questions:
