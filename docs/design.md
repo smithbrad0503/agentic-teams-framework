@@ -138,6 +138,27 @@ allowed). Model names are placeholders — map `strong` / `mid` / `cheap` to you
   zero gate escapes). **Promotion back is immediate** on quality-regression evidence.
 - A human approves routing changes; the review/verify class is never demoted.
 
+**What exists today:** `scripts/run_metrics.py` is the reader for that telemetry. It walks a
+project's `.claude/teams/state/` and prints the evidence table the loop needs — run census by
+terminal status, runs-to-PR rate, first-pass gate rate, rounds distribution, token spend by
+stage class, and **per-(model, effort) invocation counts, success rates, and token totals**,
+which is the demotion loop's input. Dollar cost is reported as a *range* over plausible
+input/output mixes, because telemetry records only a per-stage total with no input/output
+split; the price table is an editable constant (`--prices` overrides it).
+
+```
+python3 scripts/run_metrics.py --project-root /path/to/project       # text
+python3 scripts/run_metrics.py --project-root /path/to/project --json
+python3 scripts/run_metrics.py --project-root . --gh --reconcile     # needs the gh CLI
+```
+
+`--gh` cross-references PR merge state (opened / merged / open / closed-unmerged, merge rate,
+cost per merged PR); it is off by default so the script never requires network, and degrades
+to the offline metrics if `gh` is missing or unauthenticated. `--reconcile` reports — and
+never writes — `board.json` entries that disagree with the run records or with real PR state,
+because `board.json` is a human-curated surface. The recommendation step (keep / demote /
+promote-back) is still a human reading this table; there is no `/model-eval` command yet.
+
 ## 6. Context packs, shared state & memory
 
 ### Context packs (the primary token lever)
