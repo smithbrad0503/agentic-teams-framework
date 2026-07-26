@@ -25,3 +25,12 @@ def test_marketplace_lists_plugin() -> None:
     assert entries["agentic-org"]["source"] in ("./", "."), (
         "the repo root is the plugin root"
     )
+
+
+def test_plugin_team_command_in_sync() -> None:
+    plugin_copy = (ROOT / "commands" / "team.md").read_text()
+    tree_copy = (ROOT / ".claude" / "commands" / "team.md").read_text()
+    assert plugin_copy == tree_copy, (
+        "commands/team.md (plugin) and .claude/commands/team.md (manual-copy tree) "
+        "must stay byte-identical — edit both"
+    )
