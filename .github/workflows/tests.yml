@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest PyYAML
+
+      # The suite pins the framework's own hygiene rules: plugin manifest shape,
+      # agent-library frontmatter, context-pack caps, org-memory caps, the runner's
+      # never-merge invariant, and the /org-init and /org-update skill contracts.
+      - name: Run tests
+        run: python -m pytest -q
+
+      # The bare library is not itself a materialized org, so the validator is
+      # expected to exit 1 here with "no team definitions found". What this step
+      # guards is that it fails for that reason and no other — a crash, a traceback,
+      # or a different error means the gate /org-init depends on is broken.
+      - name: Validator smoke check
+        run: |
+          set +e
+          out=$(python scripts/validate_org.py --project-root . 2>&1)
+          code=$?
+          echo "$out"
+          if [ "$code" -ne 1 ]; then
+            echo "::error::expected exit 1 from the bare library, got $code"
+            exit 1
+          fi
+          echo "$out" | grep -q "no team definitions found" || {
+            echo "::error::validator failed for an unexpected reason"
+            exit 1
+          }

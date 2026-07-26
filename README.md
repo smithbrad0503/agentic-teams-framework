@@ -5,10 +5,26 @@ session you dispatch **named teams** at tickets; each team runs a **gated pipeli
 isolated git worktree and returns a **code-reviewed, CI-green pull request** — and stops.
 **It never merges.** Merge approval is always a human decision.
 
-This is an extraction of a framework that proved itself over ~30 merged PRs and 13+
-team-runs on a production codebase. The machinery is generic; everything project-specific
-lives in config you write (team yamls + context packs) — or, with the plugin, config
-the `/org-init` wizard writes for you.
+This is an extraction of a framework that proved itself on a production codebase. Over one
+measured week (58 team-runs, 2026-07-18 → 07-25):
+
+| Measure | Result |
+|---|---|
+| Team-runs dispatched | 58 |
+| Reached `pr-ready` (review passed, CI green) | 52 (90%) |
+| Pull requests opened | 56 |
+| **Merged** | **54** |
+| **Closed unmerged** | **0** |
+| Cleared both gates on the first round | 28 of 56 (50%) |
+| Median diff per PR | 930 lines |
+
+Not one agent-authored PR was thrown away. Every merge was a human decision — the runner
+opens the PR and stops. The six runs that did not reach `pr-ready` are analyzed in
+[docs/ROADMAP.md](docs/ROADMAP.md); all six trace to orchestration defects being fixed in
+v0.2.0, not to bad briefs or bad code.
+
+The machinery is generic; everything project-specific lives in config you write (team yamls
++ context packs) — or, with the plugin, config the `/org-init` wizard writes for you.
 
 ## Install as a plugin (recommended)
 
