@@ -65,14 +65,26 @@ const audited = await pipeline(
         agent(
           `Adversarially verify this audit finding in ${A.target} — try to REFUTE it:\n${f.file}: ${f.issue} (${f.severity})\n\nREAD-ONLY. Return real=true only if the issue genuinely exists as described; when uncertain, real=false.`,
           { label: `verify:${f.file}`, phase: 'Verify', schema: VERDICT_SCHEMA }
-        ).then((v) => ({ ...f, verified: !!(v && v.real), verifyReason: (v && v.reason) || '' }))
+        ).then((v) => ({
+          // A verifier that DIED is not a verifier that refuted. Collapsing both to
+          // false silently exonerates the finding — an audit that cannot check a
+          // finding would report it as "not a real issue" and drop it. `health-check`
+          // maps a dead agent to false too, but there false means "check failed",
+          // which fails closed; here false means "no problem", which fails open.
+          ...f,
+          verdict: v ? (v.real ? 'confirmed' : 'refuted') : 'unverified',
+          verifyReason: (v && v.reason) || 'verifier agent returned no report',
+        }))
       )
     )
 )
-const confirmed = audited
+const findings = audited
   .filter(Boolean)
   .flat()
-  .filter(Boolean)
-  .filter((f) => f.verified)
-log(`audit: ${confirmed.length} confirmed finding(s) on ${A.target}`)
-return { timestamp: A.timestamp || '', target: A.target, confirmed }
+  // A thunk that threw resolves to null and would vanish here for the same reason,
+  // so it is recovered as unverified rather than dropped.
+  .map((f) => f || { file: '(unknown)', issue: '(finding lost — verifier thunk errored)', severity: 'unknown', verdict: 'unverified', verifyReason: 'verifier agent errored' })
+const confirmed = findings.filter((f) => f.verdict === 'confirmed')
+const unverified = findings.filter((f) => f.verdict === 'unverified')
+log(`audit: ${confirmed.length} confirmed finding(s) on ${A.target}${unverified.length ? `, ${unverified.length} UNVERIFIED (verifier failed — triage these by hand)` : ''}`)
+return { timestamp: A.timestamp || '', target: A.target, confirmed, unverified }
