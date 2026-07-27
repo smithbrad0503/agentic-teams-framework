@@ -150,7 +150,22 @@ Use AskUserQuestion where options fit; keep it to ~6 questions:
    placeholders in model-routing.yaml).
 5. **Ticket convention** — Linear/Jira/GitHub-issue prefix, or free-form
    (used in dispatch examples).
-6. **Recipes** (multi-select) — install recurring workflows: health-check, retro, audit.
+6. **Recipes** (multi-select) — install recurring workflows. Describe each in one
+   line so the choice is informed, and recommend `triage` to everyone:
+
+   | Recipe | What it does |
+   |---|---|
+   | `triage` | Unstructured human report → diagnosed, deduped, prioritized work. The entry point from "this is broken" into a dispatchable brief. Read-only. |
+   | `health-check` | Run a set of independent checks in parallel and report what is red. Read-only. |
+   | `audit` | Sweep a target against a checklist, then adversarially verify each finding. Read-only. |
+   | `retro` | Read recent run telemetry and memory, write a retrospective, recommend which lessons should graduate into a context pack. |
+   | `batch-author` | Author N entries that all land in ONE file (i18n catalogs, fixtures, config registries, an OpenAPI spec). Parallel authoring, single serialized writer. |
+   | `release-gate` | Parallel static checks plus a strictly serial exclusive-resource chain, ending in an artifact smoke-launch. Verdict: SHIP / NO-SHIP / INCOMPLETE. |
+   | `consistency-sweep` | Sweep every surface against a locked terminology/claims contract, verifying each violation in its own context. Read-only. |
+
+   `batch-author` is worth flagging specifically: it covers the case ownership
+   zones and worktrees structurally cannot — many independent work items that all
+   have to be written into the same file.
 
 ## 4. Codebase scan (read-only)
 

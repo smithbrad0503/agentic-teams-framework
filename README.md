@@ -119,7 +119,8 @@ team-run.js  ── isolated worktree ──►  decompose → implement → tes
     memory/TEMPLATE.md          annotated team-lessons template
     state/.gitkeep              runtime board/events/telemetry live here (gitignored)
   org-memory/                   cross-team memory seeds (decisions, architecture, lessons)
-  workflows/recipes/            recurring-workflow recipes (health-check, retro, audit)
+  workflows/recipes/            recurring-workflow recipes — health-check, retro, audit,
+                                triage, batch-author, release-gate, consistency-sweep
   agents/                       the full agent org (sanitized, generic)
     AGENTS.md                   registry: roster, tiers, when to invoke
     optional/                   agents that need an MCP connection (notion, slack)

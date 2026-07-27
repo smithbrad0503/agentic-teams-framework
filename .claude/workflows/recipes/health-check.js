@@ -38,10 +38,21 @@ const results = await parallel(
     agent(
       `Health check "${c.name}". READ-ONLY: run commands and read files to verify, but change NOTHING and deploy NOTHING.\n\n${c.instructions}\n\nReturn ok=true only if the check genuinely passes; detail = one line of evidence (≤300 chars, single line).`,
       { label: `check:${c.name}`, phase: 'Check', schema: CHECK_SCHEMA }
-    ).then((r) => ({ name: c.name, ok: !!(r && r.ok), detail: (r && r.detail) || 'check agent returned no report' }))
+    // `ran: !!r` is the common dead-agent case — the agent returned nothing. The outer
+    // recovery below only catches a thunk that threw. Both must count as never-ran.
+    ).then((r) => ({ name: c.name, ok: !!(r && r.ok), ran: !!r, detail: (r && r.detail) || 'check agent returned no report' }))
   )
 )
-const settled = results.map((r, i) => r || { name: A.checks[i].name, ok: false, detail: 'check agent errored' })
+// `ran` separates "the check reported a failure" from "the check never reported at all".
+// Mapping both to ok:false fails CLOSED, which is the right direction for a health check —
+// but it discards the diagnosis exactly when you need it, because a dead agent and a
+// genuinely red system look identical in the output.
+const settled = results.map((r, i) => r || { name: A.checks[i].name, ok: false, ran: false, detail: 'check agent errored' })
 const failing = settled.filter((r) => !r.ok)
-log(`health-check: ${settled.length - failing.length}/${settled.length} green`)
-return { timestamp: A.timestamp || '', green: failing.length === 0, results: settled, failing }
+const unrun = settled.filter((r) => r.ran === false)
+// Shared recipe contract: every recipe returns `verdict`, and INCOMPLETE is reserved
+// across all of them for "an agent died, so this is not a complete judgement". A check
+// that never ran must not read as a green system, nor be mistaken for a diagnosed failure.
+const verdict = unrun.length ? 'INCOMPLETE' : failing.length ? 'UNHEALTHY' : 'HEALTHY'
+log(`health-check: ${settled.length - failing.length}/${settled.length} green${unrun.length ? ` — ${unrun.length} NEVER RAN` : ''}`)
+return { timestamp: A.timestamp || '', verdict, green: failing.length === 0 && !unrun.length, results: settled, failing, unrun }

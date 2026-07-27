@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 
 RECIPES = Path(__file__).resolve().parents[1] / ".claude" / "workflows" / "recipes"
-NAMES = ["health-check", "retro", "audit"]
+NAMES = [
+    "health-check",
+    "retro",
+    "audit",
+    "triage",
+    "batch-author",
+    "release-gate",
+    "consistency-sweep",
+]
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -15,6 +23,37 @@ def test_recipe_shape(name: str) -> None:
     assert f"name: '{name}'" in text, f"{name}: meta.name must equal the filename stem"
     for banned in ("Date.now", "Math.random", "new Date("):
         assert banned not in text, f"{name}: {banned} breaks Workflow resume"
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_recipe_returns_a_verdict(name: str) -> None:
+    """Every recipe must return a `verdict`.
+
+    Without a shared field, anything consuming recipe output — a status reader, a
+    dashboard, a summary — needs per-recipe special-casing to answer "did this
+    actually complete?". Four recipes independently invented four different
+    spellings of that idea before this was pinned.
+    """
+    text = (RECIPES / f"{name}.js").read_text()
+    assert "verdict" in text, f"{name}: must return a verdict field"
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_recipe_reserves_incomplete_for_agent_death(name: str) -> None:
+    """INCOMPLETE is reserved across all recipes for "an agent died".
+
+    Every recipe fans out to agents, and an agent can return nothing. Collapsing
+    that into an ordinary pass/fail is the bug class this framework has now fixed
+    three times: an audit that silently exonerated findings, a runner that reported
+    a stale terminal status, and an event stream that flattened four outcomes into
+    one. A result that could not be fully evaluated must say so in the one field a
+    caller is guaranteed to read.
+    """
+    text = (RECIPES / f"{name}.js").read_text()
+    assert "'INCOMPLETE'" in text, (
+        f"{name}: must be able to report INCOMPLETE when an agent returns nothing — "
+        "a degraded run that reads as a clean one is the failure mode this pins"
+    )
 
 
 def test_audit_distinguishes_dead_verifier_from_refutation() -> None:

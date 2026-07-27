@@ -87,4 +87,9 @@ const findings = audited
 const confirmed = findings.filter((f) => f.verdict === 'confirmed')
 const unverified = findings.filter((f) => f.verdict === 'unverified')
 log(`audit: ${confirmed.length} confirmed finding(s) on ${A.target}${unverified.length ? `, ${unverified.length} UNVERIFIED (verifier failed — triage these by hand)` : ''}`)
-return { timestamp: A.timestamp || '', target: A.target, confirmed, unverified }
+// Shared recipe contract: every recipe returns `verdict`, and INCOMPLETE is reserved
+// across all of them for "an agent died, so this is not a complete judgement". It is
+// the one field a caller can check without knowing which recipe produced the result.
+// INCOMPLETE outranks a clean result — a sweep that lost a verifier cannot claim CLEAN.
+const verdict = unverified.length ? 'INCOMPLETE' : confirmed.length ? 'FINDINGS' : 'CLEAN'
+return { timestamp: A.timestamp || '', target: A.target, verdict, confirmed, unverified }
