@@ -155,6 +155,11 @@ Encoded directly in the runner and guardrails (each was paid for in debugging):
 - Refetch before fire — never dispatch from a stale base.
 - Worktree CWD drift — use absolute paths; do main-checkout writes via `git rev-parse --show-toplevel`.
 - Missing routing entries fall back to the strong tier, never silently to the cheapest.
+- A failed stage's one retry **escalates to the routing file's `fallback` model** — repeating the
+  model that just failed cannot clear a capacity or availability failure — and every failure
+  records why it failed, so a blocked run is never diagnostically empty.
+- A CI red whose every failing check is infrastructure (runner capacity, queue, quota) is
+  **re-run, not code-fixed**, and the re-run does not spend a gate round.
 
 ## Known limitations
 

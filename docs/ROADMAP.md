@@ -74,8 +74,9 @@ This is simultaneously the top *engineering* gap and the top *sales* gap. Same f
 | D10 | `board.json` never reconciles with real PR state — it showed 21 `done` while GitHub showed 54 of those PRs merged | Nothing reads PR state back into the board after a run ends. `/team status` renders a stale picture, which is how the public README number drifted low. |
 | — | `/model-eval` does not exist | Described in `docs/design.md:131-139` and referenced twice in runner comments. 58 runs of clean telemetry with no reader. |
 | — | No cost model | Telemetry records tokens only — no input/output split, no cache accounting, no price table. Cost per run is currently a shrug across a 5× range. |
-| D8b | The `report:state` stage's own token cost is invisible | Telemetry is serialized at `:500-503` *before* the state-writer stage is pushed to `stages`. |
-| D8a/c | `size` is accepted and recorded but changes no behavior; `MAX_ROUNDS` is unreachable from any config | Dead parameters. |
+| ~~D8b~~ | ~~The `report:state` stage's own token cost is invisible~~ | **Fixed in v0.2.0.** Structurally unfixable in-file (the record is serialized before the writer runs; patching it afterwards is itself an unrecorded stage), so it was made *recoverable*: the record carries `tokensBeforeReport`, and the workflow's return value lists the stage. |
+| ~~D8a~~ | ~~`size` is accepted and recorded but changes no behavior~~ | **Closed in v0.2.0** by removing the promise, not the parameter: `/team`'s usage, the setup guide, and the runner's args contract now say `size` is a telemetry label. Gate budgets are the tunable (`maxReviewRounds` / `maxCiAttempts` / `maxGateRounds`). |
+| D8c | Gate budgets have no config surface | **Still open.** `maxRounds` / `maxReviewRounds` / `maxCiAttempts` / `maxGateRounds` are settable per dispatch, but nothing reads a per-team default out of the team yaml. |
 
 **Fix as one change:** a metrics script over `state/runs/*.json` + `gh pr list` that produces
 run success rate, first-pass rate, merge rate, rounds distribution, token and dollar cost per
@@ -85,16 +86,16 @@ merged PR. Correct the event-type branch, reconcile the board against PR state, 
 **Why second:** it closes four of the ten productization gaps at once and turns "I'd have to go
 compute it" into a number. Roughly a day of work sitting on top of a week of data.
 
-### Theme 3 — Infrastructure failures are misclassified as code or brief failures
+### Theme 3 — Infrastructure failures are misclassified as code or brief failures — **fixed in v0.2.0**
 
-| ID | Defect | Root cause |
-|---|---|---|
-| D5 | A model-level stage failure is retried on the identical model with no fallback and no error captured | `withRetry` at `:120-124` re-invokes with the same `opts`. The routing fallback at `:293` fires only when a *stage class key* is missing, never when a named model is unreachable — the routing file even carries a comment describing a fallback no code implements. `call()` records an error string only on a thrown exception, so a null return leaves diagnostically empty telemetry. Two runs died at decompose at the same timestamp; the same brief succeeded 29 minutes later on a different model. One of those tickets was never re-dispatched and is silently still lost. |
-| D3 | A CI runner-capacity outage is treated as a code failure — the framework dispatched a fixer against a non-existent defect, burned a round and 40k tokens, and pushed the run toward the stalemate it then reached | `CI_SCHEMA` at `:255-269` has no infra flag. The CI agent correctly identified the outage in free-text `reason`; the code never reads it. |
+| ID | Defect | Root cause | Fix as shipped |
+|---|---|---|---|
+| D5 | A model-level stage failure is retried on the identical model with no fallback and no error captured | `withRetry` re-invoked with the same `opts`. The routing fallback fired only when a *stage class key* was missing, never when a named model was unreachable — the routing file even carried a comment describing a fallback no code implemented. `call()` recorded an error string only on a thrown exception, so a null return left diagnostically empty telemetry. Two runs died at decompose at the same timestamp; the same brief succeeded 29 minutes later on a different model. One of those tickets was never re-dispatched and is silently still lost. | The one retry escalates to a real `fallback: {model, effort}` route — new top-level key in `model-routing.yaml`, overridable per team, validated by `validate_org.py`, with a conservative built-in default — and logs the switch. Every failure records a reason, including null returns, and `blocked()` quotes it. |
+| D3 | A CI runner-capacity outage is treated as a code failure — the framework dispatched a fixer against a non-existent defect, burned a round and 40k tokens, and pushed the run toward the stalemate it then reached | `CI_SCHEMA` had no infra flag. The CI agent correctly identified the outage in free-text `reason`; the code never read it. | `CI_SCHEMA`'s failing item gained an optional `infra: boolean` (optional so an unfilled flag reads false and still routes to the fixer), the CI prompt instructs it, and a red whose checks are *all* infra takes a `ci-rerun` path that refunds the gate round. `maxCiInfraReruns` (default 2) bounds it; the count rides in telemetry as `ciInfraReruns`. |
 
-**Fix:** escalate the model on retry rather than repeating it, and record a reason on null
-returns. Add an `infra: boolean` to the CI failing-item schema and a bounded re-run path that
-does not consume a gate round.
+**Not in scope, deliberately:** auto-re-dispatching a blocked run. Making the failure
+diagnosable and the retry meaningful is a code change; deciding to spend tokens again on a run
+a human never saw is a policy call.
 
 **Why third:** lower frequency than Theme 1, but each occurrence loses a whole ticket silently,
 which is the worst failure shape for a paid engagement.
@@ -111,6 +112,9 @@ which is the worst failure shape for a paid engagement.
 4. Add a GitHub Actions workflow that runs the existing pytest suite. Two docs currently assert
    "CI enforces" the context-pack cap and there is no `.github/` directory at all. Under an hour,
    and it removes a visible credibility hole on a project whose entire pitch is rigor.
+5. Theme 3 in full — retry escalation to a configured `fallback` route, a reason on every stage
+   failure, and the bounded infra re-run path (pulled forward from third place: each occurrence
+   loses a whole ticket silently). Plus D8a/D8b and D9, which are one-line-each companions.
 
 A v0.2.0 tag is also a prerequisite for testing `/org-update` at all — its three-way baseline
 recovery does `git show v<version>:<source>`, and only `v0.1.0` exists, so that path has never
@@ -140,10 +144,14 @@ gap that currently confines the framework to web-service-shaped repos.
   every mutating agent and defined in `BUILD_SCHEMA`, but never read anywhere in the runner. Two
   concurrent runs collided on the same files and it was caught by a reviewer three rounds in, by
   luck. Aggregate the field, surface it in state, and add a pre-dispatch collision check.
-- **D9 — the `ill-specified` escape hatch has never fired in 58 runs.** `PLAN_SCHEMA:212`
-  requires `packages` and `testPlan` unconditionally, so a lead returning `feasible: false` may
-  be unable to produce a schema-valid report at all. Confirm reachability with a dry-run probe
-  before assuming the path works; the framework's advertised cheap-failure mode may be dead code.
+- ~~**D9 — the `ill-specified` escape hatch has never fired in 58 runs.**~~ **Made reachable in
+  v0.2.0.** `PLAN_SCHEMA`'s hard requirement is now `feasible` alone, so
+  `{feasible:false, questions:[...]}` is a valid report; the conditional shape (`feasible=true`
+  ⇒ packages + testPlan) moved into the decompose prompt, and the runner blocks cleanly on a
+  `feasible=true` plan that arrives without packages instead of crashing on `.length`. Whether
+  0/58 was caused by the schema or by 58 adequately-specified briefs is still unknown — no
+  decompose report from those runs was retained. What changed is that the schema can no longer
+  be the reason.
 - **Crash resume** (`resumeFromRunId`) — currently documented as planned, implemented nowhere.
 
 ### Parked — real v2, once the above is true

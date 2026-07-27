@@ -237,8 +237,10 @@ Generate, each file with its provenance header:
    happened). Replace it with a short factual note instead: which identifier
    was chosen for each of `strong` / `mid` / `cheap`, and a one-line restatement
    that `review` must never be demoted below the strongest tier. Keep the rest
-   of the file (the philosophy comment, the `defaults:` block structure)
-   unchanged.
+   of the file (the philosophy comment, the top-level `fallback:` entry, the
+   `defaults:` block structure) unchanged — `fallback` is the route a failed
+   stage's retry escalates to, so its placeholder gets substituted like any
+   other and it must land on a strong, reliably available model.
 10. **State dir** → `teams/state/.gitkeep` (empty file).
 
 ## 7. Wire the project

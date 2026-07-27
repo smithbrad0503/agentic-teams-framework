@@ -21,6 +21,7 @@ def agent_md(name: str) -> str:
 
 
 ROUTING = """# agentic-org: v0.1.0 source=.claude/teams/model-routing.yaml
+fallback: { model: opus, effort: high }
 defaults:
   decompose:    { model: opus, effort: high }
   implement:    { model: opus, effort: medium }
@@ -150,6 +151,46 @@ def test_demoted_review_gate_fails(tmp_path: Path) -> None:
         "review:       { model: haiku, effort: low }",
     ))
     assert run(root) == 1
+
+
+def test_malformed_retry_fallback_fails(tmp_path: Path) -> None:
+    """The retry-escalation route is optional, but a present one must be well-formed."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "model-routing.yaml"
+    target.write_text(target.read_text().replace(
+        "fallback: { model: opus, effort: high }",
+        "fallback: { model: opus, effort: turbo }",
+    ))
+    assert run(root) == 1
+
+
+def test_placeholder_retry_fallback_fails(tmp_path: Path) -> None:
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "model-routing.yaml"
+    target.write_text(target.read_text().replace(
+        "fallback: { model: opus, effort: high }",
+        "fallback: { model: strong, effort: high }",
+    ))
+    assert run(root) == 1
+
+
+def test_routing_without_a_fallback_still_passes(tmp_path: Path) -> None:
+    """An org materialized before v0.2.0 keeps validating — the runner has a default."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "model-routing.yaml"
+    target.write_text(target.read_text().replace("fallback: { model: opus, effort: high }\n", ""))
+    assert run(root) == 0
+
+
+def test_team_fallback_override_is_accepted(tmp_path: Path) -> None:
+    """`fallback` is a valid team-level routing key, not an unknown stage class."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "routing: {}",
+        "routing: { fallback: { model: opus, effort: high } }",
+    ))
+    assert run(root) == 0
 
 
 def test_pack_over_cap_fails(tmp_path: Path) -> None:

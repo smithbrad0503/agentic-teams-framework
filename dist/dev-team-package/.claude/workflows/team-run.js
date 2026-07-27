@@ -26,7 +26,9 @@ export const meta = {
 //     routing:   { <stage-class>: {model, effort} }  — global defaults merged
 //                with the team yaml's overrides (team wins per stage class).
 //                Stage classes: decompose, implement, write-tests, docs-author,
-//                mechanical, review, revision-fix, librarian.
+//                mechanical, review, revision-fix, librarian. Plus the non-stage
+//                key `fallback: {model, effort}` — the route a failed stage's
+//                retry escalates to (model-routing.yaml's top-level `fallback:`).
 //     pack:      string   — the FULL context-pack markdown (pointers, trip-wires)
 //     memory:    string   — the FULL team-lessons markdown ("" if absent)
 //     orgMemory: string   — concatenated .claude/org-memory/ markdown ("" if absent)
@@ -53,12 +55,13 @@ const RUNNER_VERSION = '0.2.0'
 //   team: 'backend',                          // matches .claude/teams/<team>.yaml
 //   ticket: 'TICKET-123',
 //   brief: 'concrete task instructions',
-//   size: 'small' | 'medium' | 'large',       // budget class (recorded in telemetry)
+//   size: 'small' | 'medium' | 'large',       // TELEMETRY LABEL ONLY — recorded, drives nothing
 //   runId: 'backend-ticket-123-20260101T1030',// dispatcher-generated (no Date in scripts)
 //   timestamp: '2026-01-01T10:30:00-05:00',   // dispatcher-generated
 //   config?: { mission, roster, ownership, routing, pack, memory },  // injected by /team dispatch
 //   maxRounds?: 3,                            // review-gate budget (legacy name)
 //   maxReviewRounds?: 3, maxCiAttempts?: 3, maxGateRounds?: 6,  // per-gate budgets
+//   maxCiInfraReruns?: 2,                     // infra-only CI reds re-run without spending a round
 //   fixtures?: { '<stage label>': <canned result> },  // presence ⇒ DRY RUN
 // }
 // Some callers deliver args as a JSON string — normalize before validating.
@@ -84,6 +87,11 @@ const MAX_REVIEW_ROUNDS = A.maxReviewRounds || MAX_ROUNDS
 const MAX_CI_ATTEMPTS = A.maxCiAttempts || 3
 // Overall ceiling on gate iterations so decoupling the two budgets cannot run away.
 const MAX_GATE_ROUNDS = A.maxGateRounds || MAX_REVIEW_ROUNDS + MAX_CI_ATTEMPTS
+// A CI red with NO code cause (runner capacity, queue, quota, provider outage) is re-run
+// instead of code-fixed, and the re-run does not spend a gate round. This ceiling is what
+// keeps that refund from being an unbounded path: a permanently degraded runner exhausts
+// the re-runs and the run then terminates through the normal CI-attempt budget.
+const MAX_CI_INFRA_RERUNS = A.maxCiInfraReruns || 2
 const DRY = !!A.fixtures
 const BRANCH = `${A.ticket.toLowerCase()}-${A.team}`
 const trace = []
@@ -115,31 +123,53 @@ const call = async (label, phaseName, prompt, opts = {}) => {
     err = String((e && e.message) || e).slice(0, 200)
     log(`${label}: agent threw (${err}) — treating as stage failure`)
   }
+  // A null return used to record ok:false and NOTHING else, so a blocked run's telemetry
+  // was diagnostically empty and the only reason a human ever got was "failed twice".
+  // Every failure now carries a reason and names the route that produced it.
+  if (!err && res == null) log(`${label}: no report from ${opts.model || 'inherit'}/${opts.effort || 'inherit'} — treating as stage failure`)
   stages.push({
     label,
     model: opts.model || 'inherit',
     effort: opts.effort || 'inherit',
     tokens: budget.spent() - before,
     ok: res != null,
-    ...(err ? { error: err } : {}),
+    ...(err
+      ? { error: err }
+      : res == null
+        ? { error: `no report returned by ${opts.model || 'inherit'}/${opts.effort || 'inherit'} — model unavailable, refusal, or an unusable report` }
+        : {}),
   })
   if (res && Array.isArray(res.lessons)) lessons.push(...res.lessons.map((l) => ({ stage: label, lesson: l })))
   if (res && Array.isArray(res.orgLessons)) orgLessons.push(...res.orgLessons.map((l) => ({ stage: label, lesson: l })))
   return res
 }
 
-// Failure policy: one retry with failure context; second failure → caller blocks.
-const withRetry = async (label, phaseName, promptFn, opts) => {
+// The route a failed stage's retry ESCALATES to. A stage can fail at the MODEL level —
+// capacity, availability, a provider-side error — and a retry that changes nothing cannot
+// clear that (two runs died at decompose on the same model at the same minute; the identical
+// brief succeeded later elsewhere). Tunable via the routing file's top-level `fallback:`
+// entry; the default is the same conservative tier r() uses for a missing stage class.
+// Reads cfg lazily because Setup's own config stage runs through withRetry.
+const fallbackRoute = () => (cfg && cfg.routing && cfg.routing.fallback) || { model: 'opus', effort: 'high' }
+
+// Failure policy: one retry (escalated to the fallback model); second failure → caller blocks.
+const withRetry = async (label, phaseName, promptFn, opts = {}) => {
   const first = await call(label, phaseName, promptFn(false), opts)
   if (first) return first
-  return call(`${label}:retry`, phaseName, promptFn(true), opts)
+  const fb = fallbackRoute()
+  const retryOpts = { ...opts, ...(fb.model ? { model: fb.model } : {}), ...(fb.effort ? { effort: fb.effort } : {}) }
+  if (retryOpts.model !== opts.model) log(`${label}: retrying on fallback model ${retryOpts.model} (primary ${opts.model || 'inherit'} returned nothing)`)
+  return call(`${label}:retry`, phaseName, promptFn(true), retryOpts)
 }
 
 const blocked = async (stage, note) => {
   await persist('blocked', { stage, pr: typeof pr !== 'undefined' ? pr : '' })
+  // Carry the failing stage's recorded reason into the note, so the run that reaches a
+  // human says WHY it stopped instead of only that it stopped twice.
+  const why = stages.filter((s) => s.error && (s.label === stage || s.label === `${stage}:retry`)).map((s) => s.error).pop()
   return {
     runId: A.runId, team: A.team, ticket: A.ticket, status: 'blocked', stage,
-    note: note || `stage ${stage} failed twice — needs human arbitration`,
+    note: note || `stage ${stage} failed twice — needs human arbitration${why ? ` (last: ${why})` : ''}`,
     branch: BRANCH, trace: DRY ? trace : undefined,
   }
 }
@@ -196,7 +226,7 @@ const CONFIG_SCHEMA = {
       required: ['lead', 'test'],
     },
     ownership: { type: 'array', items: { type: 'string' } },
-    routing: { type: 'object', description: 'stage-class → {model, effort}; global defaults with team overrides merged (team wins)' },
+    routing: { type: 'object', description: 'stage-class → {model, effort}; global defaults with team overrides merged (team wins); plus a "fallback" key: the {model, effort} a failed stage retries on' },
     pack: { type: 'string', description: 'full context-pack markdown' },
     memory: { type: 'string', description: 'full team-lessons markdown ("" if absent)' },
     orgMemory: { type: 'string', description: 'concatenated org-memory markdown ("" if absent)' },
@@ -211,6 +241,7 @@ const PLAN_SCHEMA = {
     questions: { type: 'array', items: { type: 'string' }, description: 'when infeasible: what the brief must answer' },
     packages: {
       type: 'array',
+      description: 'required when feasible=true; empty when feasible=false',
       items: {
         type: 'object',
         properties: {
@@ -222,13 +253,18 @@ const PLAN_SCHEMA = {
         required: ['title', 'files', 'instructions'],
       },
     },
-    testPlan: { type: 'string' },
+    testPlan: { type: 'string', description: 'required when feasible=true; "" when feasible=false' },
     docTargets: { type: 'array', items: { type: 'string' } },
     risks: { type: 'array', items: { type: 'string' } },
     lessons: { type: 'array', items: { type: 'string' } },
     orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
   },
-  required: ['feasible', 'packages', 'testPlan'],
+  // ONLY `feasible` is unconditionally required. Requiring packages+testPlan made
+  // {feasible:false, questions:[...]} schema-INVALID, so a lead exercising the cheap-failure
+  // escape hatch could be retried to the cap and surface as a hard block — discarding the
+  // questions it wanted to ask. The conditional shape is enforced in the decompose prompt,
+  // and the runner re-checks it before it touches plan.packages.
+  required: ['feasible'],
 }
 
 const BUILD_SCHEMA = {
@@ -296,7 +332,18 @@ const CI_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { check: { type: 'string' }, reason: { type: 'string' } },
+        properties: {
+          check: { type: 'string' },
+          reason: { type: 'string' },
+          // The CI agent already diagnoses these correctly — it just had nowhere structured
+          // to say so, and free-text `reason` is read by nothing. OPTIONAL on purpose: an
+          // omitted flag reads as false and routes to the code fixer (the old behaviour), so
+          // an unfilled field costs a round rather than skipping a real defect.
+          infra: {
+            type: 'boolean',
+            description: 'true = this failure has NO code cause (runner capacity/queue/quota, job never acquired, image-pull or network error, provider outage). false for anything that ran your code: test, lint, type, build failures. When in doubt: false.',
+          },
+        },
         required: ['check', 'reason'],
       },
     },
@@ -320,12 +367,14 @@ Read these repo files:
 4. .claude/teams/memory/${A.team}.md (if missing, use "")
 5. .claude/org-memory/decisions.md + architecture.md + lessons.md (concatenate in that order; if the directory is absent, use "")
 
-Return: mission, roster, ownership from the team yaml; routing = the global defaults with the team yaml's routing overrides merged on top (team override wins per stage class); pack = the FULL context-pack markdown; memory = the FULL memory markdown; orgMemory = the concatenated org-memory markdown ("" if absent).`,
+Return: mission, roster, ownership from the team yaml; routing = the global defaults with the team yaml's routing overrides merged on top (team override wins per stage class), PLUS the routing file's top-level "fallback" entry carried through under the key "fallback" (a team routing.fallback override wins); pack = the FULL context-pack markdown; memory = the FULL memory markdown; orgMemory = the concatenated org-memory markdown ("" if absent).`,
     { model: 'haiku', effort: 'low', schema: CONFIG_SCHEMA }
   )
   if (!cfg) return await blocked('setup', 'could not resolve team config from .claude/teams/')
 }
 // Conservative fallback if a stage class is missing from routing — never silently cheap.
+// Distinct from cfg.routing.fallback (fallbackRoute above), which is where a stage that
+// FAILED escalates on retry; this one covers a routing key that was never configured.
 const r = (stageClass) => (cfg.routing && cfg.routing[stageClass]) || { model: 'opus', effort: 'medium' }
 
 // ---- Shared guardrails (injected into every mutating stage prompt) -------
@@ -371,6 +420,8 @@ Produce:
 
 If the brief is too vague or infeasible to implement safely, return feasible=false with concrete questions — that is a GOOD outcome (cheap failure beats wasted downstream tokens).
 
+REPORT SHAPE: always set feasible. When feasible=true, packages and testPlan are REQUIRED — a plan without them is unusable and fails the stage. When feasible=false, put your questions in questions and return packages=[] and testPlan="" — never invent packages for a brief you cannot safely implement.
+
 ## Team context pack (${A.team})
 ${cfg.pack}
 ${cfg.memory ? `\n## Team lessons\n${cfg.memory}` : ''}
@@ -386,6 +437,12 @@ if (!plan.feasible) {
     questions: plan.questions || [], trace: DRY ? trace : undefined,
     note: 'brief needs refinement before any build tokens are spent',
   }
+}
+// feasible=true no longer implies a usable plan (the schema's hard requirement is `feasible`
+// alone so the ill-specified path stays reachable), so check the shape here rather than
+// crashing on plan.packages.length.
+if (!Array.isArray(plan.packages) || !plan.packages.length || !plan.testPlan) {
+  return await blocked('decompose', 'decompose returned feasible=true without work packages or a test plan')
 }
 
 // ---- Build: implement packages sequentially, then tests, then docs -------
@@ -463,6 +520,7 @@ let gate = 'review'   // which gate the loop (re-)enters next
 let gateSteps = 0     // total gate iterations, review + CI (the overall ceiling)
 let reviewRounds = 0
 let ciAttempts = 0
+let ciInfraReruns = 0 // infra-only CI reds re-run without spending a gate round (bounded)
 let reviewOk = false
 let ciOk = false
 let clean = false
@@ -491,7 +549,9 @@ convergence pass, not a fresh audit:
 }
 
 // Reused verbatim by the post-loop CI confirm pass, so the two cannot drift.
-const CI_PROMPT = `Verify CI on **PR #${pr}**. Run \`gh pr checks ${pr} --watch --interval 20\` and wait for ALL checks to conclude — this gate catches what local slices miss (full test suite, custom lints, type-check). Report green=true only if every non-skipped check passed. If any failed, name EACH failing check with a one-line reason from \`gh run view <run-id> --log-failed\`. Do not fix anything. green=false with an empty failing list is not allowed.`
+const CI_PROMPT = `Verify CI on **PR #${pr}**. Run \`gh pr checks ${pr} --watch --interval 20\` and wait for ALL checks to conclude — this gate catches what local slices miss (full test suite, custom lints, type-check). Report green=true only if every non-skipped check passed. If any failed, name EACH failing check with a one-line reason from \`gh run view <run-id> --log-failed\`. Do not fix anything. green=false with an empty failing list is not allowed.
+
+For EACH failing check also set infra: true when the failure has NO code cause — the job was never acquired by a runner, runner capacity/queue/quota, an image-pull or network error, a provider-side outage, or a cancelled/timed-out job that never executed the build. Set infra: false for anything that actually ran this branch's code: test failures, lint, type errors, build errors. When in doubt, false. This field is READ BY THE RUNNER: an all-infra red is re-run instead of being handed to a code fixer, so a wrong true wastes CI and a wrong false wastes a fix round.`
 
 while (!clean && gateSteps < MAX_GATE_ROUNDS) {
   if (gate === 'review') {
@@ -555,8 +615,32 @@ ${GUARDRAILS}`,
     const failing = ci && ci.failing && ci.failing.length
       ? ci.failing
       : [{ check: 'unknown', reason: 'CI verify agent returned no detail' }]
-    history.push({ round: ciAttempts, gate: 'ci', items: failing })
+    // A red whose every failing check is INFRASTRUCTURE has no code cause. Dispatching a
+    // fixer at it burns tokens on a defect that does not exist AND spends a gate round the
+    // run needs for real findings (one production run reached stalemate that way, with two
+    // legitimate correctness bugs still unaddressed). Re-run the jobs and refund the round.
+    const allInfra = !!ci && failing.every((f) => f.infra === true)
+    history.push({ round: ciAttempts, gate: 'ci', ...(allInfra ? { infra: true } : {}), items: failing })
     ciOk = false
+    if (allInfra && ciInfraReruns < MAX_CI_INFRA_RERUNS) {
+      ciInfraReruns++
+      // Refund both counters — this iteration is not a gate round. MAX_CI_INFRA_RERUNS is
+      // what bounds the refund, so the loop still terminates in at most
+      // MAX_GATE_ROUNDS + MAX_CI_INFRA_RERUNS iterations.
+      gateSteps--
+      ciAttempts--
+      await call(
+        `ci-rerun#${ciInfraReruns}`,
+        'Gates',
+        `CI is red on PR #${pr} for **${A.ticket}**, and EVERY failing check is an infrastructure failure with no code cause:
+${failing.map((f) => `- ${f.check}: ${f.reason}`).join('\n')}
+
+Re-run only the failed jobs: \`gh run list --branch ${BRANCH} --limit 10\` to find them, then \`gh run rerun <run-id> --failed\` for each failed run. Do NOT change any code, do not commit, do not push, do not merge. Report one line naming what you re-ran (or that nothing could be re-run).`,
+        { model: mr.model, effort: mr.effort }
+      )
+      unverifiedCi = true
+      continue
+    }
     if (ciAttempts >= MAX_CI_ATTEMPTS) break
     // The specialist fixes CI first; if it goes red AGAIN, debug-expert gets one
     // root-cause pass; a third red blocks the run.
@@ -651,6 +735,13 @@ const verifiedAtHead = clean ? true : !reviewOk ? !unverifiedReview : !unverifie
 
 // ---- Report: telemetry + state writes (skipped in dry-run) ---------------
 phase('Report')
+// The state-writer's OWN token cost cannot appear inside the record it writes: the record
+// has to be serialized before that stage runs, and a second call to patch the file afterwards
+// would itself be an unrecorded stage — the regress does not terminate. It is made
+// RECOVERABLE instead: tokensBeforeReport is total run spend at serialization time, so the
+// writer's cost is <the host's total run spend> - tokensBeforeReport. The object this
+// workflow RETURNS does list it, because `stages` is the live array the writer appends to.
+const tokensBeforeReport = DRY ? 0 : budget.spent()
 const telemetry = {
   runId: A.runId, team: A.team, ticket: A.ticket, size: A.size || 'medium',
   runnerVersion: RUNNER_VERSION,
@@ -658,7 +749,7 @@ const telemetry = {
   // always read (the old single loop incremented once per review call); the CI budget
   // and the combined step count are reported alongside it.
   timestamp: A.timestamp, branch: BRANCH, pr, status, rounds: reviewRounds,
-  ciAttempts, gateSteps, verifiedAtHead, stages, history,
+  ciAttempts, ciInfraReruns, gateSteps, tokensBeforeReport, verifiedAtHead, stages, history,
 }
 let stateNote
 if (!DRY) {
@@ -692,5 +783,5 @@ Do not commit or push anything. State files under state/ are gitignored runtime 
   if (!stateRes) stateNote = 'state persistence failed after retry — board/telemetry may be stale'
 }
 
-log(`team-run ${A.runId}: ${status}${pr ? ` — PR #${pr}` : ''} after ${gateSteps} gate round(s) (${reviewRounds} review / ${ciAttempts} CI)${verifiedAtHead ? '' : ' — status NOT verified at branch HEAD'}. Nothing merged.`)
+log(`team-run ${A.runId}: ${status}${pr ? ` — PR #${pr}` : ''} after ${gateSteps} gate round(s) (${reviewRounds} review / ${ciAttempts} CI${ciInfraReruns ? ` / ${ciInfraReruns} infra re-run` : ''})${verifiedAtHead ? '' : ' — status NOT verified at branch HEAD'}. Nothing merged.`)
 return { ...telemetry, ...(stateNote ? { stateNote } : {}), trace: DRY ? trace : undefined, note: 'Nothing merged — PR awaits human approval.' }

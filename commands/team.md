@@ -10,6 +10,11 @@ Agentic Teams Framework (design: docs/design.md).
 /team status
 ```
 
+`[small|medium|large]` is a **telemetry label only** — it is recorded on the run so cost
+and rounds can be sliced by ticket size. It does not set a token budget, gate budget, or
+model effort, and no runner behaviour reads it. Per-gate budgets are the `maxReviewRounds`
+/ `maxCiAttempts` / `maxGateRounds` args.
+
 ## Dispatch procedure (cockpit executes)
 
 1. **Sync first** (refetch-before-fire; never dispatch from a stale base):
@@ -31,7 +36,10 @@ Agentic Teams Framework (design: docs/design.md).
    `.claude/org-memory/` files (decisions.md + architecture.md + lessons.md concatenated
    in that order; "" if the directory is absent). Build
    `config = {mission, roster, ownership, routing, pack, memory, orgMemory}` where `routing` =
-   global `defaults` with the team yaml's `routing` overrides merged on top (team wins).
+   global `defaults` with the team yaml's `routing` overrides merged on top (team wins), plus
+   the routing file's top-level `fallback` entry carried through under the key `fallback`
+   (a team `routing.fallback` override wins). `fallback` is the route a failed stage's retry
+   escalates to — without it the runner uses a conservative built-in default.
 5. **Invoke** (background by default):
    `Workflow({name: 'team-run', args: {team, ticket, brief, size, runId: RUN_ID, timestamp: TS, config}})`
 6. On completion notification, relay the result to the human: status, PR link, rounds,

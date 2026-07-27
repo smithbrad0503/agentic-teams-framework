@@ -107,6 +107,99 @@ def test_per_gate_budgets_are_read_from_config() -> None:
     assert "if (ciAttempts >= MAX_CI_ATTEMPTS) break" in RUNNER
 
 
+def test_retry_escalates_to_a_fallback_model() -> None:
+    """D5: a retry that re-invokes the identical model cannot clear a model-level failure."""
+    assert "const fallbackRoute = () =>" in RUNNER
+    assert "cfg.routing.fallback" in RUNNER, "the fallback route must be read from config"
+    block = RUNNER[RUNNER.index("const withRetry"):]
+    block = block[: block.index("\n}\n")]
+    assert "const fb = fallbackRoute()" in block, "the retry must consult the fallback route"
+    assert "promptFn(true), retryOpts" in block, (
+        "the retry must be invoked with the ESCALATED opts, not the opts that just failed"
+    )
+    assert "retrying on fallback model" in block, (
+        "a retry on a different model than the primary must be logged"
+    )
+
+
+def test_null_stage_returns_record_a_reason() -> None:
+    """D5: `ok:false` with no error text made a blocked run undiagnosable."""
+    block = RUNNER[RUNNER.index("const call = async"):]
+    block = block[: block.index("\n// The route a failed stage")]
+    assert "no report returned by" in block, "a null return must record why it failed"
+    assert ": res == null" in block, "the reason must cover null returns, not only throws"
+    blocked_block = RUNNER[RUNNER.index("const blocked = async"):]
+    blocked_block = blocked_block[: blocked_block.index("\n}\n")]
+    assert "s.error" in blocked_block and "${stage}:retry" in blocked_block, (
+        "the blocked note must surface the failing stage's recorded reason"
+    )
+
+
+def test_ci_schema_carries_an_infra_channel() -> None:
+    """D3: an infrastructure failure needs a channel code can read, not free text."""
+    schema = RUNNER[RUNNER.index("const CI_SCHEMA"):]
+    schema = schema[: schema.index("\n// ---- Setup")]
+    assert "infra: {" in schema and "type: 'boolean'" in schema
+    assert "required: ['check', 'reason']," in schema, (
+        "infra must stay OPTIONAL — an omitted flag reads as false and routes to the "
+        "code fixer (the old behaviour), so an unfilled field never skips a real defect"
+    )
+    assert "infra: true when the failure has NO code cause" in RUNNER, (
+        "the CI verification prompt must instruct the agent to set the flag"
+    )
+
+
+def test_infra_only_ci_red_reruns_without_spending_a_gate_round() -> None:
+    """D3: bounded, round-free re-run path; the bound is what keeps the loop terminating."""
+    assert "const MAX_CI_INFRA_RERUNS = A.maxCiInfraReruns || 2" in RUNNER
+    assert "const allInfra = !!ci && failing.every((f) => f.infra === true)" in RUNNER, (
+        "the re-run path fires only when EVERY failing check is infra"
+    )
+    assert "if (allInfra && ciInfraReruns < MAX_CI_INFRA_RERUNS) {" in RUNNER
+    for refund in ("      gateSteps--", "      ciAttempts--"):
+        assert refund in RUNNER, f"an infra re-run must refund {refund.strip()}"
+    assert "`ci-rerun#${ciInfraReruns}`" in RUNNER
+    assert "gh run rerun <run-id> --failed" in RUNNER, "the re-run stage must re-run jobs, not fix code"
+    assert "ciAttempts, ciInfraReruns, gateSteps" in RUNNER, "the re-run count must reach telemetry"
+
+
+def test_plan_schema_only_requires_feasible() -> None:
+    """D9: {feasible:false, questions:[...]} must be a schema-VALID report."""
+    schema = RUNNER[RUNNER.index("const PLAN_SCHEMA"):]
+    schema = schema[: schema.index("const BUILD_SCHEMA")]
+    assert "required: ['feasible'],\n}" in schema, (
+        "requiring packages+testPlan makes the ill-specified escape hatch unreachable"
+    )
+    assert "When feasible=false, put your questions in questions and return packages=[]" in RUNNER, (
+        "the conditional shape moves to the decompose prompt"
+    )
+    assert "decompose returned feasible=true without work packages or a test plan" in RUNNER, (
+        "a feasible=true plan with no packages must block cleanly, not crash on .length"
+    )
+
+
+def test_size_is_not_advertised_as_a_budget_class() -> None:
+    """D8a: `size` is recorded and drives nothing — the docs must not promise otherwise."""
+    assert "budget class" not in RUNNER
+    assert "TELEMETRY LABEL ONLY" in RUNNER
+    cmd = (ROOT / ".claude" / "commands" / "team.md").read_text()
+    assert "telemetry label only" in cmd, (
+        "/team's usage must say what size actually is"
+    )
+    assert "It does not set a token budget, gate budget, or\nmodel effort" in cmd
+
+
+def test_report_state_cost_is_recoverable() -> None:
+    """D8b: the state-writer's own cost cannot be inside the record it writes."""
+    assert "const tokensBeforeReport = DRY ? 0 : budget.spent()" in RUNNER
+    assert "tokensBeforeReport, verifiedAtHead" in RUNNER, (
+        "tokensBeforeReport must ride in telemetry so the writer's cost is recoverable"
+    )
+    assert "the regress does not terminate" in RUNNER, (
+        "why the cost cannot simply be recorded in-file must stay documented"
+    )
+
+
 def test_ci_fix_re_review_fails_safe() -> None:
     """Only an explicit touchedSource === false skips the re-review."""
     assert "touchedSource" in RUNNER

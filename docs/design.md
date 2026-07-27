@@ -128,6 +128,10 @@ allowed). Model names are placeholders — map `strong` / `mid` / `cheap` to you
 | revision-fix | mid | medium | Findings are specific by this point |
 | librarian (pack refresh) | cheap | low | Mechanical summarization with pointers |
 
+`model-routing.yaml` also carries a top-level `fallback: {model, effort}` — not a stage class,
+but the route a failed stage's single retry escalates to. Teams may override it under `routing:`
+like any stage class.
+
 **Evaluation loop** (measure, don't assert):
 
 - Every run appends per-stage telemetry to `state/runs/`: model used, tokens, revision
@@ -144,7 +148,10 @@ terminal status, runs-to-PR rate, first-pass gate rate, rounds distribution, tok
 stage class, and **per-(model, effort) invocation counts, success rates, and token totals**,
 which is the demotion loop's input. Dollar cost is reported as a *range* over plausible
 input/output mixes, because telemetry records only a per-stage total with no input/output
-split; the price table is an editable constant (`--prices` overrides it).
+split; the price table is an editable constant (`--prices` overrides it). One stage is missing
+from every persisted record by construction: the state-writer's own cost, because the record
+has to be serialized before the writer runs. It is recoverable rather than lost — the record
+carries `tokensBeforeReport`, the run's total spend at serialization time.
 
 ```
 python3 scripts/run_metrics.py --project-root /path/to/project       # text
@@ -293,3 +300,10 @@ These were paid for in debugging and are encoded directly in the runner and guar
   `git rev-parse --show-toplevel` for main-checkout writes.
 - **Conservative routing fallback** — a missing stage-class routing entry falls back to the
   strong tier, never silently to the cheapest.
+- **A retry must change something** — a stage that returns nothing may have failed at the model
+  level, so its one retry escalates to the routing file's `fallback` route instead of
+  re-invoking the model that just failed. Every stage failure records a reason, including null
+  returns; `ok:false` with no error text is what makes an incident unreconstructable.
+- **Infrastructure is not a defect** — a CI red whose failing checks are all flagged `infra`
+  (runner capacity, queue, quota, provider outage) is re-run rather than handed to a code
+  fixer, and the re-run does not consume a gate round. Bounded by `maxCiInfraReruns`.

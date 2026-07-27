@@ -57,6 +57,11 @@ setup exposes:
 Keep the **shape**: decompose and review on the strongest tier; the review gate is never
 demoted. `effort` is one of `low | medium | high | xhigh | max`.
 
+The file's top-level `fallback:` entry is not a stage class — it is the route a failed stage's
+single retry escalates to, so a model-level failure (capacity, availability) is retried
+somewhere else instead of on the model that just failed. Map it to a strong, reliably
+available model.
+
 ## 3. Define your first team
 
 Copy `.claude/teams/TEMPLATE.yaml` to `.claude/teams/<team>.yaml` (e.g. `backend.yaml`).
@@ -94,6 +99,9 @@ From your cockpit session:
 ```
 /team dispatch <team> <ticket> "<concrete brief>" [small|medium|large]
 ```
+
+The size argument is a telemetry label for slicing cost and rounds by ticket size; it sets no
+budget and changes no behaviour.
 
 What happens (see `.claude/commands/team.md` for the exact steps):
 
