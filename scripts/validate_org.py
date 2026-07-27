@@ -25,6 +25,10 @@ STAGE_CLASSES = {
     "decompose", "implement", "write-tests", "docs-author",
     "mechanical", "review", "revision-fix", "librarian",
 }
+# `fallback` is not a stage class — it is the route a failed stage's retry escalates to.
+# Optional (the runner has a conservative built-in default) but validated when present,
+# both as the routing file's top-level key and as a per-team override.
+ROUTING_KEYS = STAGE_CLASSES | {"fallback"}
 TIER_PLACEHOLDERS = {"strong", "mid", "cheap"}
 REVIEW_EFFORTS = {"high", "xhigh", "max"}
 ORG_MEMORY_HEADERS = {
@@ -114,7 +118,7 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
         errs.append(f"{path}: routing must be a mapping of stage -> {{model, effort}}")
     else:
         for stage, entry in (routing or {}).items():
-            if stage not in STAGE_CLASSES:
+            if stage not in ROUTING_KEYS:
                 errs.append(f"{path}: unknown routing stage class {stage!r}")
             elif not isinstance(entry, dict) or not entry.get("model") or entry.get("effort") not in VALID_EFFORTS:
                 errs.append(f"{path}: bad routing entry for {stage!r}")
@@ -129,9 +133,16 @@ def validate_routing(claude: Path) -> list[str]:
         return [f"{path}: missing"]
     errs: list[str] = []
     try:
-        defaults = (yaml.safe_load(path.read_text()) or {}).get("defaults") or {}
+        routing = yaml.safe_load(path.read_text()) or {}
     except yaml.YAMLError as exc:
         return [f"{path}: unparseable yaml ({exc})"]
+    defaults = routing.get("defaults") or {}
+    fallback = routing.get("fallback")
+    if fallback is not None:
+        if not isinstance(fallback, dict) or not fallback.get("model") or fallback.get("effort") not in VALID_EFFORTS:
+            errs.append(f"{path}: fallback must be {{model, effort}} with effort in {sorted(VALID_EFFORTS)}")
+        elif fallback["model"] in TIER_PLACEHOLDERS:
+            errs.append(f"{path}: fallback: placeholder tier {fallback['model']!r} not replaced with a real model identifier")
     if set(defaults) != STAGE_CLASSES:
         errs.append(f"{path}: defaults must cover exactly the stage classes {sorted(STAGE_CLASSES)}")
     valid_entries: dict[str, dict] = {}

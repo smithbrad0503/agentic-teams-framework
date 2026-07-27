@@ -17,6 +17,20 @@ def test_plugin_manifest_shape() -> None:
         assert manifest.get(key), f"plugin.json missing {key}"
 
 
+def test_runner_version_matches_plugin_version() -> None:
+    """The runner stamps RUNNER_VERSION into every run record, and /org-update
+    recovers a baseline with `git show v<version>:<source>`. If the runner and the
+    manifest disagree, telemetry names a version whose tag holds different code and
+    the update path silently diffs against the wrong baseline."""
+    manifest = json.loads((PLUGIN_DIR / "plugin.json").read_text())
+    runner = (ROOT / ".claude" / "workflows" / "team-run.js").read_text()
+    match = re.search(r"const RUNNER_VERSION = '([^']+)'", runner)
+    assert match, "team-run.js must declare RUNNER_VERSION"
+    assert match.group(1) == manifest["version"], (
+        f"RUNNER_VERSION {match.group(1)} != plugin.json {manifest['version']} — bump both together"
+    )
+
+
 def test_marketplace_lists_plugin() -> None:
     marketplace = json.loads((PLUGIN_DIR / "marketplace.json").read_text())
     assert marketplace["name"] == "agentic-teams"

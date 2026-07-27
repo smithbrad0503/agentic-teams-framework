@@ -14,6 +14,13 @@
 # actual model identifiers your Claude Code setup exposes (e.g. a top-tier model
 # for `strong`, a balanced model for `mid`, a fast/cheap model for `cheap`).
 # `effort` is one of: low | medium | high | xhigh | max.
+#
+# `fallback` is NOT a stage class: it is the route a failed stage's ONE retry escalates
+# to. A stage can fail at the model level (capacity, availability, a provider-side error)
+# and re-invoking the identical model cannot clear that, so the retry changes models.
+# Point it at a strong, reliably-available tier — never at the one most likely to be busy.
+# A team yaml may override it under `routing:` like any stage class.
+fallback: { model: strong, effort: high }
 defaults:
   decompose:    { model: strong, effort: high }    # wrong plan wastes every downstream token
   implement:    { model: strong, effort: medium }  # start strong; demotion candidate → mid

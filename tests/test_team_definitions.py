@@ -26,6 +26,9 @@ STAGE_CLASSES = {
     "revision-fix",
     "librarian",
 }
+# `fallback` is not a stage class: it is the route a failed stage's retry escalates to.
+# A team yaml may override it exactly like a stage class.
+ROUTING_KEYS = STAGE_CLASSES | {"fallback"}
 
 # "In project" = a conventional source dir exists next to .claude/. In the bare
 # framework/dist package none of these exist, so ownership-zone existence is skipped.
@@ -49,12 +52,16 @@ def agent_file_exists(name: str) -> bool:
     return (AGENTS / f"{name}.md").is_file() or (AGENTS / "optional" / f"{name}.md").is_file()
 
 
+def routing_file() -> dict:
+    return load_yaml(TEAMS / "model-routing.yaml")
+
+
 def routing_defaults() -> dict:
-    return load_yaml(TEAMS / "model-routing.yaml")["defaults"]
+    return routing_file()["defaults"]
 
 
 def assert_effort(stage: str, entry: dict) -> None:
-    assert stage in STAGE_CLASSES, f"unknown stage class: {stage}"
+    assert stage in ROUTING_KEYS, f"unknown routing key: {stage}"
     assert isinstance(entry.get("model"), str) and entry["model"], f"{stage}: model must be a non-empty string"
     assert entry.get("effort") in VALID_EFFORTS, f"{stage}: invalid effort {entry.get('effort')}"
 
@@ -104,4 +111,17 @@ def test_model_routing_defaults() -> None:
     # The gatekeeper is never cheaper than the planning stage.
     assert defaults["review"]["model"] == defaults["decompose"]["model"], (
         "review must route to the strongest tier (same as decompose)"
+    )
+
+
+def test_model_routing_declares_a_retry_fallback() -> None:
+    """D5: the runner escalates a failed stage's retry to this route — it must exist,
+    sit OUTSIDE `defaults` (it is not a stage class), and not be a cheap tier."""
+    routing = routing_file()
+    assert "fallback" not in routing["defaults"], "fallback is not a stage class"
+    fallback = routing.get("fallback")
+    assert isinstance(fallback, dict), "model-routing.yaml must declare a top-level fallback"
+    assert_effort("fallback", fallback)
+    assert fallback["model"] == routing["defaults"]["decompose"]["model"], (
+        "the retry escalates UP: the fallback is the strongest tier, never a cheaper one"
     )

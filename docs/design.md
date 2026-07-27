@@ -128,6 +128,10 @@ allowed). Model names are placeholders — map `strong` / `mid` / `cheap` to you
 | revision-fix | mid | medium | Findings are specific by this point |
 | librarian (pack refresh) | cheap | low | Mechanical summarization with pointers |
 
+`model-routing.yaml` also carries a top-level `fallback: {model, effort}` — not a stage class,
+but the route a failed stage's single retry escalates to. Teams may override it under `routing:`
+like any stage class.
+
 **Evaluation loop** (measure, don't assert):
 
 - Every run appends per-stage telemetry to `state/runs/`: model used, tokens, revision
@@ -137,6 +141,30 @@ allowed). Model names are placeholders — map `strong` / `mid` / `cheap` to you
 - **Demotion rule:** requires ≥10 clean runs at the current tier (median ≤1 revision round,
   zero gate escapes). **Promotion back is immediate** on quality-regression evidence.
 - A human approves routing changes; the review/verify class is never demoted.
+
+**What exists today:** `scripts/run_metrics.py` is the reader for that telemetry. It walks a
+project's `.claude/teams/state/` and prints the evidence table the loop needs — run census by
+terminal status, runs-to-PR rate, first-pass gate rate, rounds distribution, token spend by
+stage class, and **per-(model, effort) invocation counts, success rates, and token totals**,
+which is the demotion loop's input. Dollar cost is reported as a *range* over plausible
+input/output mixes, because telemetry records only a per-stage total with no input/output
+split; the price table is an editable constant (`--prices` overrides it). One stage is missing
+from every persisted record by construction: the state-writer's own cost, because the record
+has to be serialized before the writer runs. It is recoverable rather than lost — the record
+carries `tokensBeforeReport`, the run's total spend at serialization time.
+
+```
+python3 scripts/run_metrics.py --project-root /path/to/project       # text
+python3 scripts/run_metrics.py --project-root /path/to/project --json
+python3 scripts/run_metrics.py --project-root . --gh --reconcile     # needs the gh CLI
+```
+
+`--gh` cross-references PR merge state (opened / merged / open / closed-unmerged, merge rate,
+cost per merged PR); it is off by default so the script never requires network, and degrades
+to the offline metrics if `gh` is missing or unauthenticated. `--reconcile` reports — and
+never writes — `board.json` entries that disagree with the run records or with real PR state,
+because `board.json` is a human-curated surface. The recommendation step (keep / demote /
+promote-back) is still a human reading this table; there is no `/model-eval` command yet.
 
 ## 6. Context packs, shared state & memory
 
@@ -154,8 +182,9 @@ agent prompt in a team's runs, replacing cold exploration. Rules:
 ### Shared state during runs
 
 - `state/events.jsonl` — append-only cross-team feed (`contract_updated`, `pr_opened`,
-  `zone_conflict`, `blocked_on`). Runners append; team-runs read at **phase boundaries only**
-  (no polling).
+  `zone_conflict`, `blocked_on`, plus the terminal statuses `blocked`, `review-stalemate`,
+  `needs-human`, `ill-specified` — a run's end event carries its actual outcome, never a
+  collapsed one). Runners append; team-runs read at **phase boundaries only** (no polling).
 - `state/board.json` — active-runs registry; powers `/team status` with zero agent spawns.
 
 ### Memory hierarchy (one owner per layer, no duplication)
@@ -193,9 +222,14 @@ org memory (cross-team canon).
 2. implement      specialists on the run branch (worktree-isolated), sequential on one branch
 3. test           test role writes/extends tests (regression pin for high-severity bugs)
 4. docs           docs-author updates affected repo docs (ships IN the PR)
-5. review gate    code-reviewer (strong/high): findings → revision loop (max 3 rounds)
-6. CI gate        push branch, open PR, `gh pr checks --watch` — full CI, never local slices
-7. report         append telemetry + lessons; emit pr_opened; STOP (never merges)
+5. review gate    code-reviewer (strong/high): findings → revision rounds (own budget, max 3);
+                  each round is handed the prior rounds' findings and re-checks them first
+6. CI gate        push branch, open PR, `gh pr checks --watch` — full CI, never local slices;
+                  own budget (max 3 attempts), re-entered directly after a review-neutral fix
+6b. confirm pass  if a gate bounded out right after a fix, ONE confirm-only re-check of just
+                  those items, so the terminal status describes branch HEAD (`verifiedAtHead`)
+7. report         append telemetry + lessons; emit the terminal status as the event type;
+                  STOP (never merges)
 ```
 
 **Document mode** (advisory teams): same skeleton; stage 3 becomes fact-check, stage 6 becomes
@@ -208,8 +242,9 @@ a **draft** deliverable + briefing. Nothing publishes externally without human a
 |---|---|
 | Agent dies / returns null | One retry with failure context; second failure → stage `blocked`, event emitted, reported. Never silently skips. |
 | Agent throws (e.g. structured-output retry cap) | The `call()` wrapper catches the throw and returns null, so the retry/blocked policy governs — a throw never kills the run. |
-| Review loop exceeds 3 rounds | Stop, don't grind. Report "review stalemate" + unresolved findings. Usually a decompose problem. |
-| CI red after revisions | The specialist fixes CI first; a second red gets debug-expert one root-cause pass; a third red → blocked + report. No "merge anyway" path exists. |
+| Review loop exceeds 3 rounds | Stop, don't grind. The last round's fix gets one confirm-only re-check of the outstanding items (never a fresh audit); if they are still unresolved, report "review stalemate" + those findings. Usually a decompose problem. |
+| CI red after revisions | The specialist fixes CI first; a second red gets debug-expert one root-cause pass; a third red → blocked + report. CI has its own attempt budget, so a mechanical fix never spends a review round. No "merge anyway" path exists. |
+| A CI fix that edits source or existing test assertions | The review gate re-runs before the run can reach `pr-ready` — the fixer reports `touchedSource`, and anything short of an explicit `false` routes back through review. A confirm-only review can never promote a run whose CI was not separately verified green. |
 | Zone conflict mid-run | `zone_conflict` event; the junior claim pauses; the cockpit arbitrates. |
 | Crashed / interrupted run | State is persisted on every early exit; a `resumeFromRunId` resume from the last completed stage is the planned enhancement. |
 | Budget exhausted | Runs check budget at phase boundaries; stop cleanly at the last completed stage. Partial gated work, never half-implemented pushes. |
@@ -265,3 +300,10 @@ These were paid for in debugging and are encoded directly in the runner and guar
   `git rev-parse --show-toplevel` for main-checkout writes.
 - **Conservative routing fallback** — a missing stage-class routing entry falls back to the
   strong tier, never silently to the cheapest.
+- **A retry must change something** — a stage that returns nothing may have failed at the model
+  level, so its one retry escalates to the routing file's `fallback` route instead of
+  re-invoking the model that just failed. Every stage failure records a reason, including null
+  returns; `ok:false` with no error text is what makes an incident unreconstructable.
+- **Infrastructure is not a defect** — a CI red whose failing checks are all flagged `infra`
+  (runner capacity, queue, quota, provider outage) is re-run rather than handed to a code
+  fixer, and the re-run does not consume a gate round. Bounded by `maxCiInfraReruns`.

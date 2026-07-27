@@ -57,6 +57,11 @@ setup exposes:
 Keep the **shape**: decompose and review on the strongest tier; the review gate is never
 demoted. `effort` is one of `low | medium | high | xhigh | max`.
 
+The file's top-level `fallback:` entry is not a stage class — it is the route a failed stage's
+single retry escalates to, so a model-level failure (capacity, availability) is retried
+somewhere else instead of on the model that just failed. Map it to a strong, reliably
+available model.
+
 ## 3. Define your first team
 
 Copy `.claude/teams/TEMPLATE.yaml` to `.claude/teams/<team>.yaml` (e.g. `backend.yaml`).
@@ -95,6 +100,9 @@ From your cockpit session:
 /team dispatch <team> <ticket> "<concrete brief>" [small|medium|large]
 ```
 
+The size argument is a telemetry label for slicing cost and rounds by ticket size; it sets no
+budget and changes no behaviour.
+
 What happens (see `.claude/commands/team.md` for the exact steps):
 
 1. **Sync** — the cockpit fetches origin so you never branch from a stale base.
@@ -119,8 +127,14 @@ the PR body instead. Review the PR, and merge it yourself when satisfied.
 |---|---|
 | `pr-ready` | Review passed and CI is green. PR awaits your merge. |
 | `ill-specified` | Decompose judged the brief too vague and returned questions. Refine and re-dispatch — this is a cheap, good failure. |
-| `review-stalemate` | 3 review rounds without convergence. Usually a decompose problem; inspect the unresolved findings. |
-| `needs-human` / `blocked` | A stage failed twice, or CI stayed red after fixes. The run stops and reports; no half-finished push is left behind. |
+| `review-stalemate` | The review budget (3 rounds) ran out and a confirm-only re-check found the outstanding items still unresolved. Usually a decompose problem; inspect the unresolved findings. |
+| `needs-human` / `blocked` | A stage failed twice, or CI stayed red after fixes, or the review side cleared but CI was never verified green. The run stops and reports; no half-finished push is left behind. |
+
+The review gate and the CI gate carry separate budgets (`maxReviewRounds`, `maxCiAttempts`,
+capped overall by `maxGateRounds`), so a mechanical CI fix does not consume a review round.
+Each run's telemetry records `verifiedAtHead`: `true` means a gate checked the current branch
+HEAD to produce that status, `false` means the run bounded out and the status may predate the
+last fix that was pushed.
 
 ## 8. Dry-run / crash notes
 

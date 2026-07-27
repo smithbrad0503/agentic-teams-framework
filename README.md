@@ -5,10 +5,26 @@ session you dispatch **named teams** at tickets; each team runs a **gated pipeli
 isolated git worktree and returns a **code-reviewed, CI-green pull request** — and stops.
 **It never merges.** Merge approval is always a human decision.
 
-This is an extraction of a framework that proved itself over ~30 merged PRs and 13+
-team-runs on a production codebase. The machinery is generic; everything project-specific
-lives in config you write (team yamls + context packs) — or, with the plugin, config
-the `/org-init` wizard writes for you.
+This is an extraction of a framework that proved itself on a production codebase. Over one
+measured week (58 team-runs, 2026-07-18 → 07-25):
+
+| Measure | Result |
+|---|---|
+| Team-runs dispatched | 58 |
+| Reached `pr-ready` (review passed, CI green) | 52 (90%) |
+| Pull requests opened | 56 |
+| **Merged** | **54** |
+| **Closed unmerged** | **0** |
+| Cleared both gates on the first round | 28 of 56 (50%) |
+| Median diff per PR | 930 lines |
+
+Not one agent-authored PR was thrown away. Every merge was a human decision — the runner
+opens the PR and stops. The six runs that did not reach `pr-ready` are analyzed in
+[docs/ROADMAP.md](docs/ROADMAP.md); all six trace to orchestration defects being fixed in
+v0.2.0, not to bad briefs or bad code.
+
+The machinery is generic; everything project-specific lives in config you write (team yamls
++ context packs) — or, with the plugin, config the `/org-init` wizard writes for you.
 
 ## Install as a plugin (recommended)
 
@@ -139,6 +155,11 @@ Encoded directly in the runner and guardrails (each was paid for in debugging):
 - Refetch before fire — never dispatch from a stale base.
 - Worktree CWD drift — use absolute paths; do main-checkout writes via `git rev-parse --show-toplevel`.
 - Missing routing entries fall back to the strong tier, never silently to the cheapest.
+- A failed stage's one retry **escalates to the routing file's `fallback` model** — repeating the
+  model that just failed cannot clear a capacity or availability failure — and every failure
+  records why it failed, so a blocked run is never diagnostically empty.
+- A CI red whose every failing check is infrastructure (runner capacity, queue, quota) is
+  **re-run, not code-fixed**, and the re-run does not spend a gate round.
 
 ## Known limitations
 

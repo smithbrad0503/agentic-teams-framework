@@ -61,6 +61,29 @@ workflow before the first dispatch.
 
 ## 2. Existing-org check (idempotence)
 
+### 2a. Refuse to run against the library itself
+
+Run this FIRST:
+
+```bash
+grep -l '"name": *"agentic-org"' .claude-plugin/plugin.json 2>/dev/null
+```
+
+If that prints a path, the current project **is the agentic-org library**, not a
+project to be staffed. **Stop immediately** and say so.
+
+Materializing here would be destructive and silent: the wizard writes customized
+agents to `.claude/agents/`, which is exactly where the library's generic agent
+identities live, so it would fill their PROJECT-CONTEXT blocks with this repo's
+context and ship project-specific agents to every adopter on the next release.
+The team-yaml check in 2b does not catch it — the library has no team yamls, so
+that check reads "no existing org" and proceeds with a fresh materialization.
+
+To exercise the delivery pipeline on the library repo itself, hand-write team
+yamls and context packs per the manual quickstart instead. Do not run this wizard.
+
+### 2b. Existing-org check
+
 Run:
 
 ```bash
@@ -76,6 +99,41 @@ say the org already exists and offer exactly two paths — **update** (invoke
 the org-update skill and stop) or **extend** (continue, but only ADD new
 teams/agents/recipes; skip every file that already exists and list the skips
 at the end). NEVER silently overwrite an existing org file.
+
+### 2c. Prior-Claude-Code check (runs even when 2b is empty)
+
+An empty 2b means "no org built by this wizard." It does **not** mean the
+project has no `.claude/` worth protecting. A project already using Claude Code
+commonly has hand-written agents, commands, or workflows and no team yamls at
+all — that is the single most likely adopter profile, and a fresh
+materialization would overwrite those files.
+
+Run:
+
+```bash
+ls .claude/agents/*.md .claude/commands/*.md .claude/workflows/*.js 2>/dev/null
+```
+
+If anything is listed, do **not** treat this as a clean project. Compute the
+collisions before writing anything: for every file this run would materialize,
+check whether that exact path already exists. Then show the CEO the collision
+list and offer exactly three paths:
+
+- **preserve** (default, recommended) — materialize only the files that do not
+  already exist, skip every collision, and list the skips at the end. Their
+  agents keep working; the org is built around them.
+- **back up and replace** — copy each colliding file to `<name>.pre-org-init.md`
+  first, then write. Only on explicit confirmation, naming the files.
+- **abort** — write nothing.
+
+**Never overwrite a pre-existing file without confirmation, in any mode.**
+Extend-mode's skip rule is not a substitute for this check: extend mode only
+activates when 2b finds team yamls, so a project with custom agents and no
+teams would otherwise fresh-materialize straight over them.
+
+A skipped agent is not a silent gap. If a collision means a roster agent was
+not materialized, say so in the handover — the team lead will route to that
+`agentType` and get whatever the project's own version does.
 
 ## 3. Interview (one question at a time)
 
@@ -179,8 +237,10 @@ Generate, each file with its provenance header:
    happened). Replace it with a short factual note instead: which identifier
    was chosen for each of `strong` / `mid` / `cheap`, and a one-line restatement
    that `review` must never be demoted below the strongest tier. Keep the rest
-   of the file (the philosophy comment, the `defaults:` block structure)
-   unchanged.
+   of the file (the philosophy comment, the top-level `fallback:` entry, the
+   `defaults:` block structure) unchanged — `fallback` is the route a failed
+   stage's retry escalates to, so its placeholder gets substituted like any
+   other and it must land on a strong, reliably available model.
 10. **State dir** → `teams/state/.gitkeep` (empty file).
 
 ## 7. Wire the project
