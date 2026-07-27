@@ -43,6 +43,10 @@ const res = await agent(
 Return: path (the file you wrote), highlights (≤5 single-line takeaways, each ≤300 chars), graduationCandidates (lesson lines worth promoting).`,
   { label: 'retro', phase: 'Write', schema: RETRO_SCHEMA }
 )
-if (!res) return { error: 'retro: retro agent returned no report' }
+// Shared recipe contract: every recipe returns `verdict`, and INCOMPLETE is reserved
+// across all of them for "an agent died, so this is not a complete judgement". This
+// recipe has a single agent and nothing to partially lose — it either wrote the retro
+// or it did not — so INCOMPLETE and the error path are the same event here.
+if (!res) return { timestamp: A.timestamp, verdict: 'INCOMPLETE', error: 'retro: retro agent returned no report' }
 log(`retro: wrote ${res.path}`)
-return { timestamp: A.timestamp, ...res }
+return { timestamp: A.timestamp, verdict: 'WRITTEN', ...res }
