@@ -131,7 +131,8 @@ tests/                          schema/hygiene tests for team defs, packs, state
 dist/
   dev-team-package/             self-contained software-developer-team subset (+ .zip)
 .claude-plugin/                 plugin manifest + marketplace (install: agentic-org@agentic-teams)
-skills/                         /org-init (materialize an org) · /org-update (sync library changes)
+skills/                         /org-init (materialize an org) · /org-update (sync library
+                                changes) · /recipe-new (author a new workflow recipe)
 commands/                       /team as a plugin command (mirror of .claude/commands/team.md)
 scripts/validate_org.py         deterministic gate for materialized orgs
 ```

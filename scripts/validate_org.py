@@ -7,6 +7,33 @@ sync. Standalone: Python 3.10+ and PyYAML only.
     python3 scripts/validate_org.py --project-root /path/to/project
 
 Exit 0 = valid. Exit 1 = errors, one per line on stderr.
+Warnings print to stderr prefixed `warning:` and NEVER change the exit code — the
+/org-init and /org-update gates key on the exit code alone, so a warning informs
+without blocking a handover.
+
+Adding an agent to a materialized org
+-------------------------------------
+Writing the markdown is the easy part; the wiring is what breaks. Do all six
+steps. Each one maps to a check in this file, so the checklist and its
+enforcement cannot drift apart.
+
+1. Create `.claude/agents/<name>.md` with yaml frontmatter whose `name:` equals
+   the filename stem `<name>`.                              -> validate_agent
+2. Give it a non-empty `description:`. The harness router matches requests
+   against that text; without it the agent is unroutable.   -> validate_agent
+3. Fill the PROJECT-CONTEXT block with this project's specifics and remove the
+   library's "Filled by /org-init" sentinel. (The library keeps the sentinel; a
+   materialized org must not.)                              -> validate_agent
+4. Put the provenance header inside the first 12 lines, so /org-update can
+   diff the file against the library.                       -> check_provenance
+5. Register it in `.claude/agents/AGENTS.md` — one roster line whose first
+   token is the agent name. Unregistered means a team lead can route to an
+   agentType nothing documents.                             -> registry_names
+6. Staff it: add `<name>` to a `.claude/teams/<team>.yaml` roster. A roster
+   naming a file that does not exist is an ERROR; a file on no roster is a
+   WARNING (dead weight, not a broken org).                 -> validate_team_yaml
+   Exception: code-reviewer / debug-expert / docs-author are required by the
+   runner whether or not any roster names them.             -> RUNNER_REQUIRED_AGENTS
 """
 
 from __future__ import annotations
@@ -43,6 +70,10 @@ CTX_END = "<!-- PROJECT-CONTEXT:END -->"
 PLACEHOLDER_SENTINEL = "Filled by /org-init"
 # team-run.js hard-codes these agentTypes regardless of roster.
 RUNNER_REQUIRED_AGENTS = ("code-reviewer", "debug-expert", "docs-author")
+AGENTS_REGISTRY = "AGENTS.md"
+# Leading decoration an AGENTS.md roster line may carry before the agent name:
+# code-block indentation, list bullets, table pipes, quotes, emphasis, backticks.
+ENTRY_DECORATION = " \t>-*+|#`\"'"
 GITIGNORE_LINES = (".claude/teams/state/*", "!.claude/teams/state/.gitkeep")
 
 
@@ -177,11 +208,67 @@ def validate_pack(pack: Path, team: str) -> list[str]:
     return errs
 
 
-def validate_agent(path: Path) -> list[str]:
+def entry_name(line: str) -> str:
+    """The agent name an AGENTS.md line documents, or '' if the line is prose.
+
+    Deliberately format-agnostic: the shipped registry lists agents as indented
+    lines inside a fenced roster block (`  backend-expert   Server-side ...`),
+    but an org may reformat that as a bullet list, a definition list, or a
+    markdown table. All four put the name first on the line, so that is what we
+    key on — strip decoration off the left, take the first token, strip
+    decoration and trailing punctuation off it.
+    """
+    stripped = line.strip().lstrip(ENTRY_DECORATION)
+    if not stripped:
+        return ""
+    token = stripped.split()[0].strip(ENTRY_DECORATION + ",;:.()[]")
+    if token.endswith(".md"):
+        token = token[: -len(".md")]
+    return token
+
+
+def registry_names(registry: Path) -> set[str]:
+    """Agent names documented in .claude/agents/AGENTS.md."""
+    return {n for n in (entry_name(line) for line in registry.read_text().splitlines()) if n}
+
+
+def validate_agent(path: Path, registered: set[str] | None = None) -> list[str]:
+    """Check one agent file. `registered` = names found in AGENTS.md, or None to skip."""
     errs: list[str] = []
     text = path.read_text()
+    stem = path.stem
     if not text.startswith("---") or "name:" not in text.split("---")[1]:
         errs.append(f"{path}: missing yaml frontmatter with a name field")
+    else:
+        try:
+            front = yaml.safe_load(text.split("---", 2)[1])
+        except yaml.YAMLError as exc:
+            front = None
+            errs.append(
+                f"{path}: unparseable yaml frontmatter ({exc}) — fix the block between the first two '---' lines"
+            )
+        if isinstance(front, dict):
+            name = front.get("name")
+            if name != stem:
+                errs.append(
+                    f"{path}: frontmatter name is {name!r} but the filename stem is {stem!r} — "
+                    f"the harness invokes agents by filename, so set 'name: {stem}' or rename the file to {name}.md"
+                )
+            description = front.get("description")
+            if not isinstance(description, str) or not description.strip():
+                errs.append(
+                    f"{path}: frontmatter description is empty or missing — the router matches requests against it, "
+                    "so this agent can never be selected; add a 'description:' line saying what to use it for and "
+                    "what NOT to use it for"
+                )
+        elif front is not None:
+            errs.append(f"{path}: frontmatter must be a yaml mapping with name and description keys")
+    if registered is not None and stem not in registered:
+        errs.append(
+            f"{path}: not listed in {AGENTS_REGISTRY} — a team lead can route to an agentType nothing documents; "
+            f"add this line to the roster block in .claude/agents/{AGENTS_REGISTRY}: "
+            f"'  {stem}    <one-line remit — what it does, what it does not>'"
+        )
     if text.count(CTX_BEGIN) != 1 or text.count(CTX_END) != 1:
         errs.append(f"{path}: needs exactly one PROJECT-CONTEXT block")
         return errs
@@ -189,7 +276,10 @@ def validate_agent(path: Path) -> list[str]:
     if not body.strip():
         errs.append(f"{path}: PROJECT-CONTEXT block is empty — /org-init must fill it")
     if PLACEHOLDER_SENTINEL in body:
-        errs.append(f"{path}: PROJECT-CONTEXT block still contains the library placeholder")
+        errs.append(
+            f"{path}: PROJECT-CONTEXT block still contains the library placeholder "
+            f"({PLACEHOLDER_SENTINEL!r}) — replace it with this project's stack, key paths, and commands"
+        )
     return errs
 
 
@@ -220,9 +310,11 @@ def main(argv: list[str] | None = None) -> int:
     root = ns.project_root.resolve()
     claude = root / ".claude"
     errs: list[str] = []
+    warns: list[str] = []
 
     teams_dir = claude / "teams"
     teams = team_files(teams_dir) if teams_dir.is_dir() else []
+    rostered: set[str] = set()
     if not teams:
         errs.append(f"{teams_dir}: no team definitions found — run /org-init first")
     else:
@@ -231,9 +323,17 @@ def main(argv: list[str] | None = None) -> int:
             errs += validate_team_yaml(tf, claude)
             check_provenance(tf, errs)
             try:
-                pack_rel = (yaml.safe_load(tf.read_text()) or {}).get("context_pack") or ""
+                cfg = yaml.safe_load(tf.read_text()) or {}
             except yaml.YAMLError:
-                pack_rel = ""
+                cfg = {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            pack_rel = cfg.get("context_pack") or ""
+            roster = cfg.get("roster") or {}
+            if isinstance(roster, dict):
+                specialists = roster.get("specialists") or []
+                members = [roster.get("lead"), roster.get("test"), *(specialists if isinstance(specialists, list) else [])]
+                rostered |= {m for m in members if isinstance(m, str)}
             pack = teams_dir / pack_rel
             if pack_rel and pack.is_file():
                 errs += validate_pack(pack, tf.stem)
@@ -249,14 +349,29 @@ def main(argv: list[str] | None = None) -> int:
             if not (agents_dir / f"{name}.md").is_file():
                 errs.append(f"{agents_dir}/{name}.md: missing — team-run.js hard-requires this agent")
         if agents_dir.is_dir():
+            registry = agents_dir / AGENTS_REGISTRY
+            registered: set[str] | None = None
+            if registry.is_file():
+                registered = registry_names(registry)
+            else:
+                errs.append(
+                    f"{registry}: missing — the agent registry must be materialized alongside the agents, "
+                    "or a team lead has no list of who it may route to; copy it from the library "
+                    f"(${{CLAUDE_PLUGIN_ROOT}}/.claude/agents/{AGENTS_REGISTRY}) and add a provenance header"
+                )
             for agent_path in sorted(agents_dir.rglob("*.md")):
-                if agent_path.name == "AGENTS.md":
+                if agent_path.name == AGENTS_REGISTRY:
                     continue
                 lines = agent_path.read_text().splitlines()
                 if not lines or lines[0].strip() != "---":
                     continue  # documentation (e.g. README.md), not an agent definition
-                errs += validate_agent(agent_path)
+                errs += validate_agent(agent_path, registered)
                 check_provenance(agent_path, errs)
+                if agent_path.stem not in rostered and agent_path.stem not in RUNNER_REQUIRED_AGENTS:
+                    warns.append(
+                        f"{agent_path}: on no team roster — nothing can route to it. Either add "
+                        f"{agent_path.stem!r} to a roster in .claude/teams/<team>.yaml or delete the file"
+                    )
 
         errs += validate_org_memory(claude)
 
@@ -270,6 +385,11 @@ def main(argv: list[str] | None = None) -> int:
             if line not in ignore_text:
                 errs.append(f"{gitignore}: missing line {line!r}")
 
+    # Warnings never affect the exit code — the /org-init and /org-update gates key on it alone.
+    for warn in warns:
+        print(f"warning: {warn}", file=sys.stderr)
+    if warns:
+        print(f"validate_org: {len(warns)} warning(s) — not fatal", file=sys.stderr)
     if errs:
         for err in errs:
             print(err, file=sys.stderr)

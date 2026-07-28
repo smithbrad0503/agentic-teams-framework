@@ -120,12 +120,31 @@ A v0.2.0 tag is also a prerequisite for testing `/org-update` at all — its thr
 recovery does `git show v<version>:<source>`, and only `v0.1.0` exists, so that path has never
 executed even once.
 
-### v0.3.0 — Prove the distribution mechanism
+### Shipped since this roadmap was written
+
+- **v0.2.0** — Theme 1 (converging gate loop, confirm-only verification, per-gate budgets),
+  Theme 2 (`run_metrics.py`, event types, `RUNNER_VERSION`, board reconciliation), Theme 3
+  (fallback route on retry, a reason on every failure, bounded infra re-runs), plus D8a/D8b/D9.
+- **v0.3.0** — four recipes harvested from a sibling project's production workflow library
+  (`triage`, `batch-author`, `release-gate`, `consistency-sweep`), and one shared
+  degraded-outcome contract: every recipe returns a `verdict`, with `INCOMPLETE` reserved for
+  agent death. `health-check` stopped conflating a check that failed with one that never ran.
+- **v0.4.0** — `/recipe-new` authoring skill, agent-wiring validation in `validate_org.py`, and
+  a manifest-vs-tag version guard. Skill and plugin authoring were deliberately NOT built:
+  `skill-creator`, `superpowers:writing-skills` and `plugin-dev` already cover them upstream.
+
+> **Note on `v0.3.0`.** The original tag was deleted. It pointed at a tree whose `plugin.json`
+> still said `0.2.0`, so anything materialized from it would have stamped the wrong provenance
+> and `/org-update` would have diffed against a version that never shipped. The repo had no
+> consumers at the time. The guard added in v0.4.0 compares the manifest against the highest
+> release tag so this cannot recur.
+
+### v0.5.0 — Prove the distribution mechanism
 
 The pilot: run `/org-init` literally, on a real repo that is not the one whose packs were
 hand-tuned over 58 runs, and do not rescue the wizard. Instrument what has never been measured:
 human review minutes per PR, dollar cost per merged PR, rework rate at 14 days. Then run
-`/org-update` from v0.2.0 → v0.3.0 against that org.
+`/org-update` from v0.2.0 → v0.4.0 against that org.
 
 The single highest-signal free measurement in the pilot: diff the wizard's output against the
 hand-built org it replaces. Wherever an experienced human wrote something the wizard didn't,
@@ -135,7 +154,7 @@ Ship alongside: a failure-triage runbook per terminal state, written from the si
 already sitting in telemetry, and a `software-engineer` generalist identity to close the roster
 gap that currently confines the framework to web-service-shaped repos.
 
-### v0.4.0 — Sustain
+### v0.6.0 — Sustain
 
 - **Librarian**: flag context packs whose staleness date predates recent merges in their zones.
   Flag-only, never auto-rewrite. The docs warn that a stale pack "silently misleads every agent"

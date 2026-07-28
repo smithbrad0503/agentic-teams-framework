@@ -10,6 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Release tags are required, not cosmetic: the manifest-version guard
+          # compares plugin.json against the highest v* tag, and the default
+          # shallow checkout fetches no tags — so the guard would skip silently
+          # in CI, which is the one place it most needs to run.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
