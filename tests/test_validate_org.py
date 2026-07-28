@@ -71,6 +71,26 @@ PACK = (
     "## Current state\n- fresh org — nothing in flight\n"
 )
 
+REGISTRY = (
+    "# Agent Registry\n"
+    + PROV.format(src=".claude/agents/AGENTS.md")
+    + "\n\nMaterialized in this project: the roster below.\n\n"
+    "## Roster\n\n"
+    "```\n"
+    "Lead\n"
+    "  tech-lead        In-code architecture, ADRs, cross-module design\n"
+    "\n"
+    "Specialists\n"
+    "  backend-expert   Server-side app code: routing, ORM, validation\n"
+    "\n"
+    "Test / gates\n"
+    "  qa-tester        Test authoring, mocking, coverage gate\n"
+    "  code-reviewer    Correctness/security review (REVIEW GATE)\n"
+    "  debug-expert     Root-cause investigation across the stack\n"
+    "  docs-author      Diff-driven repo-doc updates\n"
+    "```\n"
+)
+
 ORG_MEMORY = {
     "decisions.md": "# Org decisions\n" + PROV.format(src=".claude/org-memory/decisions.md") + "\n- 2026-07-25 — python stack. Why: existing code.\n",
     "architecture.md": "# Org architecture facts\n" + PROV.format(src=".claude/org-memory/architecture.md") + "\n- src/: single module\n",
@@ -96,6 +116,7 @@ def make_valid_org(root: Path) -> Path:
     (claude / "teams" / "state" / ".gitkeep").write_text("")
     for name in ("tech-lead", "backend-expert", "qa-tester", "code-reviewer", "debug-expert", "docs-author"):
         (claude / "agents" / f"{name}.md").write_text(agent_md(name))
+    (claude / "agents" / "AGENTS.md").write_text(REGISTRY)
     for fname, text in ORG_MEMORY.items():
         (claude / "org-memory" / fname).write_text(text)
     (claude / "workflows" / "team-run.js").write_text("// runner copy placeholder for validation tests\n")
@@ -303,3 +324,138 @@ def test_agents_dir_readme_without_frontmatter_passes(tmp_path: Path) -> None:
         "# Agents\n\nSee individual files in this directory for role definitions.\n"
     )
     assert run(root) == 0
+
+
+# --- adding an agent: the wiring checklist in validate_org.py's docstring ---
+
+
+def add_agent(root: Path, name: str, *, register: bool = True, roster: bool = True,
+              body: str | None = None) -> Path:
+    """Wire a new agent in the way the checklist prescribes; skip steps to break it."""
+    path = root / ".claude" / "agents" / f"{name}.md"
+    path.write_text(agent_md(name) if body is None else body)
+    if register:
+        registry = root / ".claude" / "agents" / "AGENTS.md"
+        registry.write_text(registry.read_text().replace(
+            "Specialists\n",
+            f"Specialists\n  {name}   specialist wired in by this test\n",
+        ))
+    if roster:
+        team = root / ".claude" / "teams" / "dev.yaml"
+        team.write_text(team.read_text().replace(
+            "specialists: [backend-expert]", f"specialists: [backend-expert, {name}]"
+        ))
+    return path
+
+
+def test_fully_wired_agent_passes(tmp_path: Path, capsys) -> None:
+    """File + matching name + description + filled context + registry line + roster seat."""
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre")
+    assert run(root) == 0
+    assert "warning:" not in capsys.readouterr().err
+
+
+def test_agent_name_not_matching_filename_stem_fails(tmp_path: Path, capsys) -> None:
+    """The harness invokes by filename; a divergent frontmatter name makes it unreachable."""
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", body=agent_md("sre").replace("name: sre", "name: site-reliability"))
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "sre.md" in err and "filename stem" in err
+
+
+def test_materialized_agent_keeping_the_unfilled_sentinel_fails(tmp_path: Path, capsys) -> None:
+    """Opposite polarity to test_agent_library.py: the LIBRARY keeps this sentinel, an org must not."""
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", body=agent_md("sre").replace(
+        "Stack: python; tests via pytest; code in src/.",
+        "> Filled by /org-init with project-specific context.",
+    ))
+    assert run(root) == 1
+    assert "library placeholder" in capsys.readouterr().err
+
+
+def test_agent_missing_from_registry_fails(tmp_path: Path, capsys) -> None:
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", register=False)
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "AGENTS.md" in err and "sre" in err
+
+
+def test_missing_registry_file_fails(tmp_path: Path, capsys) -> None:
+    """No AGENTS.md at all is one clear error, not one per agent."""
+    root = make_valid_org(tmp_path)
+    (root / ".claude" / "agents" / "AGENTS.md").unlink()
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "AGENTS.md: missing" in err
+    assert "not listed in AGENTS.md" not in err
+
+
+def test_unrostered_agent_warns_but_still_passes(tmp_path: Path, capsys) -> None:
+    """Dead weight, not a broken org: it must warn on stderr and leave the exit code at 0."""
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", roster=False)
+    assert run(root) == 0
+    err = capsys.readouterr().err
+    assert "warning:" in err and "sre.md" in err and "on no team roster" in err
+
+
+def test_runner_required_agents_are_never_reported_as_unrostered(tmp_path: Path, capsys) -> None:
+    """code-reviewer/debug-expert/docs-author are staffed by the runner, not by a roster."""
+    root = make_valid_org(tmp_path)
+    assert run(root) == 0
+    assert "warning:" not in capsys.readouterr().err
+
+
+def test_missing_runner_required_agent_fails(tmp_path: Path, capsys) -> None:
+    root = make_valid_org(tmp_path)
+    (root / ".claude" / "agents" / "debug-expert.md").unlink()
+    assert run(root) == 1
+    assert "debug-expert.md: missing" in capsys.readouterr().err
+
+
+def test_agent_without_description_fails(tmp_path: Path, capsys) -> None:
+    """The router matches on description; no description means the agent is unroutable."""
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", body=agent_md("sre").replace("description: test agent for sre duties\n", ""))
+    assert run(root) == 1
+    assert "description is empty or missing" in capsys.readouterr().err
+
+
+def test_agent_with_blank_description_fails(tmp_path: Path, capsys) -> None:
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", body=agent_md("sre").replace(
+        "description: test agent for sre duties", "description: '   '"
+    ))
+    assert run(root) == 1
+    assert "description is empty or missing" in capsys.readouterr().err
+
+
+def test_roster_naming_a_nonexistent_agent_fails(tmp_path: Path, capsys) -> None:
+    """Pre-existing check, kept: a roster seat with no file behind it is an error."""
+    root = make_valid_org(tmp_path)
+    team = root / ".claude" / "teams" / "dev.yaml"
+    team.write_text(team.read_text().replace(
+        "specialists: [backend-expert]", "specialists: [backend-expert, ghost-expert]"
+    ))
+    assert run(root) == 1
+    assert "roster references missing agent ghost-expert" in capsys.readouterr().err
+
+
+def test_registry_entries_are_read_from_bullet_and_table_formats(tmp_path: Path) -> None:
+    """AGENTS.md format is not assumed: name-first lines register in any common layout."""
+    root = make_valid_org(tmp_path)
+    add_agent(root, "sre", register=False)
+    registry = root / ".claude" / "agents" / "AGENTS.md"
+    registry.write_text(
+        registry.read_text()
+        + "\n- `sre` — incident response, monitoring, DR\n"
+        + "\n| ux-designer | flows, wireframes |\n"
+    )
+    assert run(root) == 0
+    assert validate_org.entry_name("| ux-designer | flows, wireframes |") == "ux-designer"
+    assert validate_org.entry_name("- **sre** — incident response") == "sre"
+    assert validate_org.entry_name("  sre.md  incident response") == "sre"
