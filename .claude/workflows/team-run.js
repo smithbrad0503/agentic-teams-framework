@@ -56,7 +56,7 @@ export const meta = {
 
 // Runner identity. BUMP THIS WITH .claude-plugin/plugin.json's version — it rides in
 // every telemetry record so a deployed (possibly forked) copy can report what it is.
-const RUNNER_VERSION = '0.4.0'
+const RUNNER_VERSION = '0.5.0'
 
 // ---- args contract -------------------------------------------------------
 // {
