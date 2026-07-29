@@ -13,6 +13,9 @@ NAMES = [
     "batch-author",
     "release-gate",
     "consistency-sweep",
+    "first-run",
+    "dependency-probe",
+    "state-reconcile",
 ]
 
 

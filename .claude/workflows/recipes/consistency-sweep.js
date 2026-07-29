@@ -148,11 +148,27 @@ const swept = await pipeline(
       )
     )
 )
+// Index-aligned at BOTH layers, and the outer one is the easy mistake.
+// `pipeline` yields null for a surface whose stage threw outright, so a
+// `.filter(Boolean)` here silently deletes an ENTIRE surface — the sweep then
+// claims to have covered surfaces it never read. The inner recovery below only
+// ever sees nulls *within* a surviving surface's array.
 const violations = swept
-  .filter(Boolean)
-  .flat()
-  // A thunk that threw resolves to null and would vanish here for the same reason,
-  // so it is recovered as unverified rather than dropped.
+  .flatMap((r, i) =>
+    Array.isArray(r)
+      ? r
+      : [{
+          file: '(unknown)',
+          where: '(unknown)',
+          text: `(surface never swept: "${surfaces[i] && surfaces[i].key}")`,
+          rule: '(unknown)',
+          surface: (surfaces[i] && surfaces[i].key) || '(unknown)',
+          verdict: 'unverified',
+          exposure: 'unknown',
+          verifyReason: 'the sweep stage errored for this entire surface',
+        }]
+  )
+  // A verifier thunk that threw resolves to null inside a surviving surface's array.
   .map((v) => v || { file: '(unknown)', where: '(unknown)', text: '(violation lost — verifier thunk errored)', rule: '(unknown)', surface: '(unknown)', verdict: 'unverified', exposure: 'unknown', verifyReason: 'verifier agent errored' })
 
 const confirmed = violations.filter((v) => v.verdict === 'confirmed')

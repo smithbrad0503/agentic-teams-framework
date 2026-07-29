@@ -78,11 +78,25 @@ const audited = await pipeline(
       )
     )
 )
+// Index-aligned at BOTH layers, and the outer one is the easy mistake.
+// `pipeline` yields null for an item whose stage threw outright, so a
+// `.filter(Boolean)` here silently deletes an ENTIRE checklist item — the audit
+// then reports on fewer items than it was asked about, with nothing saying so.
+// The inner recovery below only ever sees nulls *within* a surviving item's array,
+// so it cannot cover this case no matter where it is placed.
 const findings = audited
-  .filter(Boolean)
-  .flat()
-  // A thunk that threw resolves to null and would vanish here for the same reason,
-  // so it is recovered as unverified rather than dropped.
+  .flatMap((r, i) =>
+    Array.isArray(r)
+      ? r
+      : [{
+          file: '(unknown)',
+          issue: `(checklist item never assessed: "${A.checklist[i]}")`,
+          severity: 'unknown',
+          verdict: 'unverified',
+          verifyReason: 'the verify stage errored for this entire checklist item',
+        }]
+  )
+  // A verifier thunk that threw resolves to null inside a surviving item's array.
   .map((f) => f || { file: '(unknown)', issue: '(finding lost — verifier thunk errored)', severity: 'unknown', verdict: 'unverified', verifyReason: 'verifier agent errored' })
 const confirmed = findings.filter((f) => f.verdict === 'confirmed')
 const unverified = findings.filter((f) => f.verdict === 'unverified')

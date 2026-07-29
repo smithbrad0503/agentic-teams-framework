@@ -162,6 +162,9 @@ Use AskUserQuestion where options fit; keep it to ~6 questions:
    | `batch-author` | Author N entries that all land in ONE file (i18n catalogs, fixtures, config registries, an OpenAPI spec). Parallel authoring, single serialized writer. |
    | `release-gate` | Parallel static checks plus a strictly serial exclusive-resource chain, ending in an artifact smoke-launch. Verdict: SHIP / NO-SHIP / INCOMPLETE. |
    | `consistency-sweep` | Sweep every surface against a locked terminology/claims contract, verifying each violation in its own context. Read-only. |
+   | `first-run` | Probe the signup→first-value journey for defects that only appear with zero data and no prior state. Read-only. |
+   | `dependency-probe` | Probe every third-party dependency against production failure modes, then ask which single change breaks the most at once. Read-only. |
+   | `state-reconcile` | Detect drift between what a tracker claims and what reality shows (board vs git, roadmap vs shipped), via two blind gatherers. Report-only unless write-back is explicitly authorized. |
 
    `batch-author` is worth flagging specifically: it covers the case ownership
    zones and worktrees structurally cannot — many independent work items that all
