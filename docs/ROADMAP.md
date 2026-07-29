@@ -130,7 +130,13 @@ executed even once.
   degraded-outcome contract: every recipe returns a `verdict`, with `INCOMPLETE` reserved for
   agent death. `health-check` stopped conflating a check that failed with one that never ran.
 - **v0.4.0** — `/recipe-new` authoring skill, agent-wiring validation in `validate_org.py`, and
-  a manifest-vs-tag version guard. Skill and plugin authoring were deliberately NOT built:
+  a manifest-vs-tag version guard.
+- **v0.5.0** — three recipes harvested from a second production project's workflow library
+  (`first-run`, `dependency-probe`, `state-reconcile`), built by three independent authors
+  following `/recipe-new` — its first real use. Their converged deviation logs fixed the skill.
+  Also fixed an outer-layer silent drop in `audit` and `consistency-sweep`: `.filter(Boolean)`
+  over `pipeline` results deleted an entire checklist item or surface whose stage threw, so an
+  audit could report clean on a checklist it never finished. Skill and plugin authoring were deliberately NOT built:
   `skill-creator`, `superpowers:writing-skills` and `plugin-dev` already cover them upstream.
 
 > **Note on `v0.3.0`.** The original tag was deleted. It pointed at a tree whose `plugin.json`

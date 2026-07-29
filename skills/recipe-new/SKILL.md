@@ -19,7 +19,10 @@ does not fail loudly — it returns a result that looks fine and is not.
 | `tests/test_recipe_<name>.py` | The per-recipe structural test you will also write. |
 
 ```bash
-ls "${CLAUDE_PLUGIN_ROOT}/.claude/workflows/recipes/"
+# ${CLAUDE_PLUGIN_ROOT} is set when this skill runs from an INSTALLED plugin. Working
+# in a checkout of the framework repo it is unset, and the line below would resolve to
+# "/.claude/..." and error. Repo root and plugin root are the same tree, so:
+ls "${CLAUDE_PLUGIN_ROOT:-.}/.claude/workflows/recipes/"
 ```
 
 Read `.claude/workflows/team-run.js`'s header block first — it states the host
@@ -33,6 +36,10 @@ Workflow({name: '<name>', args: {…, timestamp: '<ISO8601 now>'}})
 ```
 
 ## 2. Interview (one question at a time)
+
+**If your brief already answers these, do not interrogate anyway.** Restate the answers
+you were given, name any the brief left open, ask only about those, and continue.
+Asking a question whose answer is already in front of you is pure stall.
 
 Six questions. Do not skip any — each one selects a different part of the shape.
 
@@ -66,11 +73,18 @@ not to invent one.
 | N items that all write into the SAME file | `batch-author.js` | Parallel read-only authors, **one serialized writer**, index-aligned recovery |
 | Some checks need an exclusive resource | `release-gate.js` | Serial `for await` chain as ONE element of a `parallel()` array |
 | One agent writes one document | `retro.js` | Single `agent()`, INCOMPLETE and the error path are the same event |
+| An **agent discovers** the list to fan out over | `first-run.js` | Discovery head (one agent maps the real journey) → `pipeline()` body over what it found |
+| Per-item pass, then **one cross-cutting question** over all results | `dependency-probe.js` | `parallel()` as a genuine barrier — synthesis is unanswerable over a subset — then a synthesis agent whose death degrades the verdict |
+| Two sources that must be compared **without contaminating each other** | `state-reconcile.js` | Blind double-gather: both prompts frozen as consts *above* the `parallel()`, so leaking one into the other is a `ReferenceError`, not a silent bias |
 
 Two rules on top of the table:
 
 - **`pipeline()` is the default.** It preserves input order and yields `null`
   where a stage thunk threw, which is what makes index-aligned recovery possible.
+  Its signature is **not documented in `team-run.js`'s header** — read it off the
+  recipes: `pipeline(items, stage1, stage2, …)`, where each stage callback receives
+  `(previousResult, originalItem, index)`. Later stages need `originalItem`/`index`
+  to label work without threading context through the first stage's return value.
 - **`parallel()` only for a genuine barrier** — a stage that truly needs every
   prior result at once before it can start. Reach for it when the recipe's own
   shape requires the barrier, not because parallel sounds faster.
@@ -106,6 +120,14 @@ resumed Workflow replays the script; a wall-clock read or an RNG call makes the
 replay diverge from the original run, and resume silently produces a different
 answer. Timestamps arrive through `args.timestamp` and are echoed back in the
 result. A test in `tests/test_recipes.py` enforces this for every recipe.
+
+**The grep is over raw source, comments included.** Writing a comment that merely
+*mentions* one of the banned tokens — even to explain why it is banned — fails the
+test. Refer to them in prose instead ("a wall-clock read", "an RNG call"). The same
+trap applies to any check that greps raw text: `.filter(Boolean)` in an explanatory
+comment can trip a no-silent-drop assertion, and a comment quoting a slice anchor can
+break a test that slices by that anchor. When writing your own tests (§5), take
+anchors against comment-stripped source, not the raw file.
 
 If you need a derived stamp (a filename, say), derive it from `A.timestamp`:
 
@@ -250,6 +272,18 @@ PY
 
 Registration is not optional: `NAMES` is what applies the meta-literal, stem-match,
 no-wall-clock, verdict, and INCOMPLETE tests to your file.
+
+**`NAMES` is not the only registry, and the other three are where users actually find
+recipes.** A recipe absent from them exists but is invisible:
+
+| Registry | Why it matters |
+|---|---|
+| `tests/test_recipes.py` `NAMES` | Applies the shared invariant tests. Without it your recipe is untested. |
+| `README.md` (layout block) | The public list. |
+| `skills/org-init/SKILL.md` (recipe catalog table) | **What `/org-init` offers a new project.** Unlisted means nobody is ever offered it. |
+| `docs/ROADMAP.md` | Where shipped-vs-planned is tracked. |
+
+Add a one-line description to the org-init catalog in the same voice as the existing rows.
 
 ### Mutation-check your own tests
 
