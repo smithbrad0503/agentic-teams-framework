@@ -63,6 +63,11 @@ TERMINAL_STATUSES = (
     "blocked",
     "ill-specified",
     "done",
+    # Advisory runs (a team yaml's `output: document`). They open no PR, so they record an
+    # empty `pr` and `branch` and are excluded from the runs-to-PR and merge-rate figures
+    # by construction — those measure the delivery pipeline, not every run.
+    "document-ready",
+    "critique-stalemate",
 )
 # board.json statuses that assert a PR was merged / is still open.
 BOARD_MERGED_STATUSES = {"done"}

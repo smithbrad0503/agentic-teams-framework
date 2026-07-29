@@ -183,7 +183,8 @@ agent prompt in a team's runs, replacing cold exploration. Rules:
 
 - `state/events.jsonl` — append-only cross-team feed (`contract_updated`, `pr_opened`,
   `zone_conflict`, `blocked_on`, plus the terminal statuses `blocked`, `review-stalemate`,
-  `needs-human`, `ill-specified` — a run's end event carries its actual outcome, never a
+  `needs-human`, `ill-specified`, and the advisory `document-ready` / `critique-stalemate` —
+  a run's end event carries its actual outcome, never a
   collapsed one). Runners append; team-runs read at **phase boundaries only** (no polling).
 - `state/board.json` — active-runs registry; powers `/team status` with zero agent spawns.
 
@@ -232,9 +233,41 @@ org memory (cross-team canon).
                   STOP (never merges)
 ```
 
-**Document mode** (advisory teams): same skeleton; stage 3 becomes fact-check, stage 6 becomes
-the domain/compliance gate (legal for growth, data-verification for product); terminal state is
-a **draft** deliverable + briefing. Nothing publishes externally without human approval.
+### Document mode (advisory teams, `output: document`)
+
+A second path in the same runner, selected by the team yaml's `output` field. It keeps the
+half of the delivery skeleton that carries the safety — an adversarial gate run by a
+non-author, bounded — and drops the half that assumes a PR:
+
+```
+0. setup          identical (the dispatcher injects `output` with the rest of the config)
+1. advise         team lead (strong): writes the DOCUMENT into the team's ownership zones
+                  → structured output: recommendation, document path, open questions,
+                    what needs human approval. Forbidden from editing application source.
+2. critique gate  a NON-AUTHOR critic (roster.test, else code-reviewer) runs one pass per
+                  NAMED failure lens — ungrounded claim, stale grounding, scope expansion,
+                  hidden cost/risk, undecidable advice. Each must-fix finding is then
+                  attacked by TWO independent refuters; it dies only if every live refuter
+                  refutes it. A finding whose refuters all died STANDS, marked unverified.
+3. revise         lead addresses the standing findings; loop back to 2 (own bounded budget,
+                  `maxCritiqueRounds`). A revision is only dispatched when another critique
+                  round will read it, so the reported verdict always describes the document
+                  on disk — no confirm-only pass is needed on this path.
+4. report         verdict + telemetry + board/event/memory writes; STOP
+```
+
+`verdict` follows the recipe contract: **`APPROVED`**, **`REVISE`** (findings still standing
+when the budget ran out), or **`INCOMPLETE`** — reserved, as everywhere else in this
+framework, for *an agent died, so this is not a complete judgement*. INCOMPLETE **outranks**
+a clean result: a gate that lost a lens, lost both of a finding's refuters, or lost a
+revision cannot certify a document, and the run reports `needs-human` rather than a
+deliverable. Terminal statuses are `document-ready` / `critique-stalemate` / `needs-human`,
+recorded in the same telemetry shape as a delivery run with `branch` and `pr` empty.
+
+**The path creates no branch, opens no PR, and never touches CI** — which is why an advisory
+team declares `gates: [critique]` and not `ci-green`: there is no PR for CI to watch, so
+`ci-green` would name a check nothing could ever perform (`scripts/validate_org.py` enforces
+the split). Nothing publishes externally without human approval.
 
 ### Error-handling doctrine (every failure has a named owner and a stopping point)
 
@@ -245,6 +278,7 @@ a **draft** deliverable + briefing. Nothing publishes externally without human a
 | Review loop exceeds 3 rounds | Stop, don't grind. The last round's fix gets one confirm-only re-check of the outstanding items (never a fresh audit); if they are still unresolved, report "review stalemate" + those findings. Usually a decompose problem. |
 | CI red after revisions | The specialist fixes CI first; a second red gets debug-expert one root-cause pass; a third red → blocked + report. CI has its own attempt budget, so a mechanical fix never spends a review round. No "merge anyway" path exists. |
 | A CI fix that edits source or existing test assertions | The review gate re-runs before the run can reach `pr-ready` — the fixer reports `touchedSource`, and anything short of an explicit `false` routes back through review. A confirm-only review can never promote a run whose CI was not separately verified green. |
+| An advisory gate stage dies (a critique lens, both refuters on a finding, a revision) | The loss is recorded, never collapsed into "found nothing". The verdict latches to `INCOMPLETE` and the run reports `needs-human` — a document whose gate lost a stage is not a reviewed document. A finding nobody could refute stands rather than being dropped. |
 | Zone conflict mid-run | `zone_conflict` event; the junior claim pauses; the cockpit arbitrates. |
 | Crashed / interrupted run | State is persisted on every early exit; a `resumeFromRunId` resume from the last completed stage is the planned enhancement. |
 | Budget exhausted | Runs check budget at phase boundaries; stop cleanly at the last completed stage. Partial gated work, never half-implemented pushes. |

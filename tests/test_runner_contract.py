@@ -11,6 +11,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = (ROOT / ".claude" / "workflows" / "team-run.js").read_text()
 
+ADVISORY_ENTRY = "if (cfg.output === 'document') {"
+
+
+def advisory_block() -> str:
+    """The advisory path only: from its entry branch to the delivery Decompose stage."""
+    start = RUNNER.index(ADVISORY_ENTRY)
+    return RUNNER[start : RUNNER.index("\n// ---- Decompose ---", start)]
+
 
 def test_core_invariant_intact() -> None:
     assert "It NEVER" in RUNNER, "core-invariant comment must survive edits"
@@ -47,9 +55,10 @@ def test_runner_version_reaches_telemetry() -> None:
     assert re.search(r"const RUNNER_VERSION = '\d+\.\d+\.\d+'", RUNNER), (
         "the runner must declare a semver RUNNER_VERSION"
     )
-    assert RUNNER.count("runnerVersion: RUNNER_VERSION") == 2, (
-        "RUNNER_VERSION must ride in BOTH the final telemetry object and the "
-        "early-exit run record — otherwise a deployed copy cannot report what it is"
+    assert RUNNER.count("runnerVersion: RUNNER_VERSION") == 3, (
+        "RUNNER_VERSION must ride in EVERY run record the runner writes — the delivery "
+        "telemetry object, the advisory telemetry object, and the early-exit record — "
+        "otherwise a deployed copy cannot report what it is"
     )
 
 
@@ -207,3 +216,154 @@ def test_ci_fix_re_review_fails_safe() -> None:
         "the re-review skip must require an explicit false — a missing field, an "
         "unparsed report, or a null return has to route back through review"
     )
+
+
+# --- advisory output mode (a team yaml's `output: document`) -----------------
+
+
+def test_advisory_path_is_selected_by_output_document() -> None:
+    """The runner must actually READ cfg.output — the field was declared for two
+    releases while zero lines of the runner consulted it."""
+    assert ADVISORY_ENTRY in RUNNER, "the advisory path must branch on cfg.output"
+    assert "output: { type: 'string', enum: ['pr', 'document']" in RUNNER, (
+        "the config contract must carry `output`, or the dispatcher has nowhere to send it"
+    )
+
+
+def test_advisory_path_never_creates_a_branch_or_opens_a_pr() -> None:
+    """The whole point of the mode: a document, and nothing in git."""
+    block = advisory_block()
+    for token in (
+        "gh pr create",
+        "gh pr ready",
+        "gh pr checks",
+        "gh run rerun",
+        "${BRANCH}",
+        "isolation: 'worktree'",
+        "${GUARDRAILS}",
+    ):
+        assert token not in block, (
+            f"the advisory path must not contain {token!r} — it creates no branch, "
+            "opens no PR, and runs no CI"
+        )
+    assert "branch: '', pr: ''" in block, "advisory telemetry must record no branch and no PR"
+    assert '.pr="", .branch=""' in block, "the advisory board update must clear branch and pr"
+
+
+def test_advisory_branch_reference_is_empty_on_every_early_exit() -> None:
+    """A blocked advisory run must not report a branch name it never cut — that
+    plants a phantom branch on the board and in every orphan sweep."""
+    assert "const runBranch = () => (cfg && cfg.output === 'document' ? '' : BRANCH)" in RUNNER
+    blocked_block = RUNNER[RUNNER.index("const blocked = async") :]
+    blocked_block = blocked_block[: blocked_block.index("\n}\n")]
+    assert "branch: runBranch()" in blocked_block and "branch: BRANCH" not in blocked_block
+    persist_block = RUNNER[RUNNER.index("const persist = async") :]
+    persist_block = persist_block[: persist_block.index("\n// ---- schemas")]
+    assert "branch: runBranch()" in persist_block and "branch: BRANCH" not in persist_block
+
+
+def test_advisory_gate_is_an_adversarial_critique_by_a_non_author() -> None:
+    """The load-bearing safety mechanism has to survive into this mode: the author
+    never clears its own work, and one reviewer never decides alone."""
+    block = advisory_block()
+    assert (
+        "const critic = cfg.roster.test && cfg.roster.test !== cfg.roster.lead "
+        "? cfg.roster.test : 'code-reviewer'"
+    ) in block, "the critic must be derived so it can never be the document's author"
+    assert "agentType: critic" in block, "the critique stage must run AS the non-author critic"
+    assert "const REFUTERS = ['debug-expert', 'code-reviewer'].map((a) => (a === cfg.roster.lead ? critic : a))" in block, (
+        "each finding needs two independent refuters, neither of them the author"
+    )
+    lenses = block[block.index("const LENSES = [") : block.index("const DOC_SCHEMA")]
+    keys = re.findall(r"\{ key: '([a-z-]+)'", lenses)
+    assert len(keys) >= 4, f"the critique gate must run multiple named failure lenses, got {keys}"
+    assert "for (let i = 0; i < LENSES.length; i++) {" in block, (
+        "EVERY lens must be dispatched — a lens list nothing iterates is decoration, and "
+        "one undirected critique pass finds the first problem and stops looking"
+    )
+    assert "`critique#${critiqueRounds}:${lens.key}`" in block, (
+        "each lens needs its own labelled stage, or a dead one cannot be told from a quiet one"
+    )
+
+
+def test_advisory_critique_gate_never_silently_demotes() -> None:
+    """A lens that died is not a lens that found nothing, and a finding nobody could
+    refute is not a refuted finding. Both are how a degraded run certifies a document."""
+    block = advisory_block()
+    assert ".filter(Boolean)" not in block, (
+        "filtering agent results silently deletes work — the advisory path must recover "
+        "index-aligned, as recipes/audit.js does"
+    )
+    assert "if (!res) {\n        deadStages.push(label)" in block, (
+        "a dead critique lens must be recorded, not read as zero findings"
+    )
+    assert "if (!vote) {\n          deadStages.push(label)" in block, (
+        "a dead refuter must be recorded, not counted as a refutation"
+    )
+    assert "const stands = verified ? refutals < live : true" in block, (
+        "a finding dies only if EVERY live refuter refuted it; with no live refuter it stands"
+    )
+    assert "if (!verified) unverifiedFindings++" in block
+    assert "if (!revised) deadStages.push(" in block, (
+        "a revision that never reported is a lost stage, not a completed one"
+    )
+
+
+def test_advisory_returns_a_verdict_with_incomplete_reserved_for_a_dead_agent() -> None:
+    """The shared recipe contract: INCOMPLETE means an agent died, and it outranks
+    every clean-looking result."""
+    block = advisory_block()
+    assert "const degraded = deadStages.length > 0 || unverifiedFindings > 0" in block
+    assert (
+        "const verdict = degraded ? 'INCOMPLETE' : standing.length ? 'REVISE' : 'APPROVED'"
+    ) in block, "INCOMPLETE must outrank both REVISE and APPROVED"
+    assert "verdict: 'INCOMPLETE'" in block, (
+        "an advisory run blocked by a dead stage must still return a verdict"
+    )
+    assert "const advBlocked = async (stage, note)" in block
+
+
+def test_advisory_loop_is_bounded() -> None:
+    """Like the delivery gates: the bound is what makes termination provable."""
+    block = advisory_block()
+    assert "const MAX_CRITIQUE_ROUNDS = A.maxCritiqueRounds || MAX_REVIEW_ROUNDS" in block
+    assert "const MAX_REFUTED_FINDINGS = A.maxRefutedFindings || 6" in block
+    assert "while (critiqueRounds < MAX_CRITIQUE_ROUNDS) {" in block
+    assert "if (critiqueRounds >= MAX_CRITIQUE_ROUNDS) break" in block, (
+        "the loop must stop before dispatching a revision no critique round will read"
+    )
+    assert "if (i >= MAX_REFUTED_FINDINGS) {" in block
+    assert "unverifiedFindings++\n        judged.push" in block, (
+        "a finding past the refutation cap must count as unverified — the bound has to "
+        "fail closed, never become a quiet approval path"
+    )
+
+
+def test_advisory_report_is_consistent_with_the_delivery_path() -> None:
+    """/team status and scripts/run_metrics.py read one record shape."""
+    block = advisory_block()
+    assert "runnerVersion: RUNNER_VERSION" in block
+    assert "'report:state'" in block and "state/runs/${A.runId}.json" in block
+    assert "state/events.jsonl" in block and "state/board.json" in block
+    for key in ("runId:", "team:", "ticket:", "size:", "status:", "rounds:", "stages,"):
+        assert key in block, f"advisory telemetry is missing {key!r}"
+    assert (
+        "const advStatus = verdict === 'APPROVED' ? 'document-ready' : "
+        "verdict === 'REVISE' ? 'critique-stalemate' : 'needs-human'"
+    ) in block, "every advisory verdict must map to a terminal status"
+
+
+def test_team_command_transmits_the_output_mode() -> None:
+    """The dispatcher resolved the team yaml and dropped type/output/gates on the
+    floor, so the runner could never see which mode it was in."""
+    for path in (
+        ROOT / ".claude" / "commands" / "team.md",
+        ROOT / "commands" / "team.md",
+    ):
+        text = path.read_text()
+        assert (
+            "config = {mission, type, output, gates, roster, ownership, routing, pack, memory, orgMemory}"
+        ) in text, f"{path}: the dispatch config must carry type/output/gates"
+        assert "document" in text and "advisory" in text, (
+            f"{path}: the command must say what output: document produces"
+        )

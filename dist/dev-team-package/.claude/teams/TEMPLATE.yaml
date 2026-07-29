@@ -4,23 +4,45 @@
 # definition + a memory file, not a standing process.
 
 name: <name>                 # MUST equal the filename stem (backend.yaml → backend)
-type: delivery               # delivery (output: gated PRs) | advisory (output: reviewed docs)
-output: pr                   # pr | document  (document mode: test stage → fact-check, CI gate → domain/compliance gate)
+
+# The two modes. `output` is what the runner branches on; `type` must agree with it.
+#
+#   type: delivery / output: pr        gates: [code-review, ci-green]
+#     The run creates a branch, implements, tests, updates docs, and opens a PR that a
+#     code-review gate and the full CI suite must both clear. It stops at the open PR —
+#     merge approval is always human.
+#
+#   type: advisory / output: document  gates: [critique]
+#     The run writes a DOCUMENT into this team's ownership zones and stops. It creates NO
+#     branch, opens NO PR, and touches NO CI — so `ci-green` is not a gate it can ever
+#     satisfy, and declaring it is a validation error. The gate it does run is an
+#     adversarial multi-lens critique by a NON-AUTHOR (roster.test), with each finding
+#     attacked by two independent refuters. A gate stage that dies makes the run's verdict
+#     INCOMPLETE — never a clean document.
+type: delivery               # delivery | advisory
+output: pr                   # pr | document
 
 # One-line charter. Injected into the decompose prompt so the lead knows the team's remit.
 mission: <what this team owns and is accountable for, in one sentence>
 
 # The roster is drawn from .claude/agents/. Every name here MUST have a matching
-# .claude/agents/<name>.md file. The lead runs decompose + revision-fix; specialists
-# implement; the test agent writes tests.
+# .claude/agents/<name>.md file. The lead runs decompose + revision-fix (advisory: writes
+# and revises the document); specialists implement; the test agent writes tests.
 roster:
   lead: <lead-agent>                        # e.g. tech-lead, backend-expert, product-manager
   specialists: [<agent>, <agent>]           # 0+ implementers; [] is valid
-  test: <test-agent>                         # e.g. qa-tester (delivery) / fact-check role (advisory)
+  # Delivery: the agent that writes tests (e.g. qa-tester).
+  # Advisory: the GATE seat — the non-author who critiques the document (e.g. code-reviewer
+  # for a fact-check gate, legal-expert for a compliance gate). It must NOT be the lead; a
+  # lead seated here is ignored and the runner falls back to code-reviewer, because an
+  # author may never clear its own work.
+  test: <test-agent>
 
 # File-ownership zones. The runner confines every mutating stage to these paths
 # (plus tests/ and docs/). Work needed outside these zones is reported as
 # `outOfZoneNeeds`, never silently done — this is how cross-team collisions surface.
+# For an advisory team these are the DOCUMENT zones (e.g. docs/product/): the run writes
+# its deliverable there and is forbidden from editing application source at all.
 ownership:
   - <path/to/zone/>
   - <another/zone/>
@@ -29,7 +51,10 @@ ownership:
 # Path is relative to .claude/teams/. See context-packs/TEMPLATE.md.
 context_pack: context-packs/<name>.md
 
-# The gate sequence. Delivery teams use code-review + ci-green.
+# The gate sequence, and it must match the output mode — validate_org.py rejects a
+# mismatch, because a declared gate the runner cannot run is a promise nothing keeps.
+#   output: pr        →  gates: [code-review, ci-green]
+#   output: document  →  gates: [critique]
 gates: [code-review, ci-green]
 
 # Reference token budget classes for humans sizing a ticket (small < medium < large).
@@ -39,7 +64,10 @@ budget_defaults: { small: 80000, medium: 200000, large: 500000 }
 # Per-stage model routing OVERRIDES. Leave as {} to inherit every global default
 # from model-routing.yaml. Only override where this team has earned a change via
 # /model-eval evidence. Team override wins over the global default per stage class.
-# The `review` stage must never be demoted below the strongest tier.
+# The `review` stage must never be demoted below the strongest tier — on an advisory
+# team it routes the critique gate and its refuters, so demoting it demotes the only
+# check the document ever gets. (`implement` routes the document-writing stage;
+# `revision-fix` routes the revision after a critique round.)
 # `fallback` may also be overridden here: it is not a stage class but the route a
 # failed stage's retry escalates to (see model-routing.yaml).
 routing: {}
