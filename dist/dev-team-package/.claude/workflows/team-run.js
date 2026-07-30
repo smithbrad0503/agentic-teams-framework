@@ -1,13 +1,13 @@
 export const meta = {
   name: 'team-run',
-  description: 'Runs a dev team on one ticket and opens a reviewed, CI-green PR for human approval.',
+  description: 'Runs a team on one ticket: a delivery team (output: pr) opens a reviewed, CI-green PR for human approval; an advisory team (output: document) produces an adversarially critiqued document and never touches git.',
   whenToUse:
     'Dispatch via the /team command (resolves team config, registers the board entry, generates runId/timestamp). Direct invocation works too: a setup agent resolves config from .claude/teams/. Passing args.fixtures makes it a DRY RUN: no real agents, no state writes, returns the stage trace.',
   phases: [
     { title: 'Setup', detail: 'resolve team config (skipped when /team dispatch injects it)' },
-    { title: 'Decompose', detail: 'team lead: work packages, test plan, doc targets, risks' },
-    { title: 'Build', detail: 'implement packages sequentially on the run branch, then tests + docs' },
-    { title: 'Gates', detail: 'code-review gate + full-CI gate, bounded revision loop' },
+    { title: 'Decompose', detail: 'delivery: team lead plans work packages, test plan, doc targets, risks. advisory: the lead writes the document' },
+    { title: 'Build', detail: 'delivery only: implement packages sequentially on the run branch, then tests + docs' },
+    { title: 'Gates', detail: 'delivery: code-review gate + full-CI gate. advisory: multi-lens adversarial critique by a non-author, refuted two ways. Both bounded' },
     { title: 'Report', detail: 'telemetry + board/event/memory writes' },
   ],
 }
@@ -21,6 +21,12 @@ export const meta = {
 //   CONFIG CONTRACT (args.config, or resolved from .claude/teams/<team>.yaml):
 //   {
 //     mission:   string   — one-line team charter, injected into decompose
+//     type:      'delivery' | 'advisory'   — recorded; `output` is what selects the path
+//     output:    'pr' | 'document'  — 'document' selects the ADVISORY path (no branch,
+//                no PR, no CI). Absent/anything else = the delivery path, so a
+//                dispatcher that predates advisory mode keeps behaving identically.
+//     gates:     [<gate>...]  — recorded in telemetry; the runner runs the gates its
+//                output mode defines (delivery: code-review + ci-green; advisory: critique)
 //     roster:    { lead: <agent>, specialists: [<agent>...], test: <agent> }
 //     ownership: [<path>...]  — file zones this team may edit (plus tests/ + docs/)
 //     routing:   { <stage-class>: {model, effort} }  — global defaults merged
@@ -44,11 +50,13 @@ export const meta = {
 //
 //   CORE INVARIANT (never edit away): this runner OPENS a PR and STOPS. It NEVER
 //   merges and NEVER pushes to the default branch. Merge approval is always human.
+//   The advisory path (cfg.output === 'document') is the same invariant taken further:
+//   it produces a reviewed document and STOPS, never creating a branch or a PR at all.
 // =============================================================================
 
 // Runner identity. BUMP THIS WITH .claude-plugin/plugin.json's version — it rides in
 // every telemetry record so a deployed (possibly forked) copy can report what it is.
-const RUNNER_VERSION = '0.4.0'
+const RUNNER_VERSION = '0.5.0'
 
 // ---- args contract -------------------------------------------------------
 // {
@@ -62,6 +70,7 @@ const RUNNER_VERSION = '0.4.0'
 //   maxRounds?: 3,                            // review-gate budget (legacy name)
 //   maxReviewRounds?: 3, maxCiAttempts?: 3, maxGateRounds?: 6,  // per-gate budgets
 //   maxCiInfraReruns?: 2,                     // infra-only CI reds re-run without spending a round
+//   maxCritiqueRounds?: 3, maxRefutedFindings?: 6,  // advisory-gate budgets (output: document)
 //   fixtures?: { '<stage label>': <canned result> },  // presence ⇒ DRY RUN
 // }
 // Some callers deliver args as a JSON string — normalize before validating.
@@ -94,6 +103,11 @@ const MAX_GATE_ROUNDS = A.maxGateRounds || MAX_REVIEW_ROUNDS + MAX_CI_ATTEMPTS
 const MAX_CI_INFRA_RERUNS = A.maxCiInfraReruns || 2
 const DRY = !!A.fixtures
 const BRANCH = `${A.ticket.toLowerCase()}-${A.team}`
+// The branch this run is actually on. An ADVISORY run never cuts one, and reporting a
+// name it never created would plant a phantom branch on the board and in every orphan
+// sweep. Read lazily, because cfg is resolved after this point (same pattern as
+// fallbackRoute below); before then, and for every delivery run, it is BRANCH.
+const runBranch = () => (cfg && cfg.output === 'document' ? '' : BRANCH)
 const trace = []
 const stages = []
 const lessons = []
@@ -170,7 +184,7 @@ const blocked = async (stage, note) => {
   return {
     runId: A.runId, team: A.team, ticket: A.ticket, status: 'blocked', stage,
     note: note || `stage ${stage} failed twice — needs human arbitration${why ? ` (last: ${why})` : ''}`,
-    branch: BRANCH, trace: DRY ? trace : undefined,
+    branch: runBranch(), trace: DRY ? trace : undefined,
   }
 }
 
@@ -183,7 +197,7 @@ const persist = async (statusVal, opts = {}) => {
   const runObj = {
     runId: A.runId, team: A.team, ticket: A.ticket, size: A.size || 'medium',
     runnerVersion: RUNNER_VERSION,
-    timestamp: A.timestamp, branch: BRANCH, pr: opts.pr || '', status: statusVal,
+    timestamp: A.timestamp, branch: runBranch(), pr: opts.pr || '', status: statusVal,
     stage: opts.stage || '', stages,
   }
   // The event type carries the ACTUAL terminal status — hardcoding 'blocked' here made
@@ -204,7 +218,7 @@ ${JSON.stringify(runObj)}
 2. Append EXACTLY this line to state/events.jsonl:
 ${JSON.stringify(evt)}
 
-3. Update state/board.json with jq: find .runs[] entry with .id=="${A.runId}" and set .status="${statusVal}", .pr="${opts.pr || ''}", .branch="${BRANCH}"; if no entry exists, append {"id":"${A.runId}","team":"${A.team}","ticket":"${A.ticket}","status":"${statusVal}","branch":"${BRANCH}","pr":"${opts.pr || ''}","worktree":"","ts":"${A.timestamp}"}.
+3. Update state/board.json with jq: find .runs[] entry with .id=="${A.runId}" and set .status="${statusVal}", .pr="${opts.pr || ''}", .branch="${runBranch()}"; if no entry exists, append {"id":"${A.runId}","team":"${A.team}","ticket":"${A.ticket}","status":"${statusVal}","branch":"${runBranch()}","pr":"${opts.pr || ''}","worktree":"","ts":"${A.timestamp}"}.
 
 Do not commit or push anything. State files under state/ are gitignored runtime data.`,
     { model: m.model, effort: m.effort }
@@ -216,6 +230,11 @@ const CONFIG_SCHEMA = {
   type: 'object',
   properties: {
     mission: { type: 'string' },
+    // OPTIONAL on purpose: a dispatcher that predates advisory mode sends neither, and an
+    // absent `output` must read as 'pr' so those runs keep taking the delivery path.
+    type: { type: 'string', enum: ['delivery', 'advisory'], description: "the team yaml's type field" },
+    output: { type: 'string', enum: ['pr', 'document'], description: "the team yaml's output field; 'document' selects the advisory path" },
+    gates: { type: 'array', items: { type: 'string' }, description: "the team yaml's declared gate sequence — recorded in telemetry" },
     roster: {
       type: 'object',
       properties: {
@@ -367,7 +386,7 @@ Read these repo files:
 4. .claude/teams/memory/${A.team}.md (if missing, use "")
 5. .claude/org-memory/decisions.md + architecture.md + lessons.md (concatenate in that order; if the directory is absent, use "")
 
-Return: mission, roster, ownership from the team yaml; routing = the global defaults with the team yaml's routing overrides merged on top (team override wins per stage class), PLUS the routing file's top-level "fallback" entry carried through under the key "fallback" (a team routing.fallback override wins); pack = the FULL context-pack markdown; memory = the FULL memory markdown; orgMemory = the concatenated org-memory markdown ("" if absent).`,
+Return: mission, type, output, gates, roster, ownership from the team yaml (type/output/gates verbatim — "output" decides whether this run produces a PR or a document, so do not guess it: if the yaml has no output field, return "pr"); routing = the global defaults with the team yaml's routing overrides merged on top (team override wins per stage class), PLUS the routing file's top-level "fallback" entry carried through under the key "fallback" (a team routing.fallback override wins); pack = the FULL context-pack markdown; memory = the FULL memory markdown; orgMemory = the concatenated org-memory markdown ("" if absent).`,
     { model: 'haiku', effort: 'low', schema: CONFIG_SCHEMA }
   )
   if (!cfg) return await blocked('setup', 'could not resolve team config from .claude/teams/')
@@ -395,6 +414,374 @@ NON-NEGOTIABLE CONSTRAINTS:
 ## Team context pack (${A.team})
 ${cfg.pack}
 ${cfg.memory ? `\n## Team lessons\n${cfg.memory}` : ''}`
+
+// =============================================================================
+// ADVISORY PATH — a reviewed DOCUMENT. No branch. No PR. No CI.
+// -----------------------------------------------------------------------------
+// Selected by cfg.output === 'document' (the team yaml's `output:` field, carried
+// through by /team dispatch). Everything below this block is the delivery path and is
+// untouched by it.
+//
+// ADVISORY INVARIANT (never edit away): this path writes a document and STOPS. It never
+// creates a branch, never opens a PR, never merges, and never touches CI — an advisory
+// team cannot satisfy a CI gate, so it does not pretend to have one. What it keeps from
+// the delivery path is the load-bearing half: an ADVERSARIAL GATE RUN BY A NON-AUTHOR,
+// bounded, and non-demoting. A document only its own author ever read is not a reviewed
+// document, and a reviewed document is the entire product of an advisory run.
+// =============================================================================
+if (cfg.output === 'document') {
+  // Bounded like the delivery gates, and for the same reason: the bound is what makes
+  // termination provable instead of hoped for.
+  const MAX_CRITIQUE_ROUNDS = A.maxCritiqueRounds || MAX_REVIEW_ROUNDS
+  // Refutation costs two agents per finding, so an unbounded finding list is an unbounded
+  // stage count. Findings past this cap are NOT dropped: they stand UNREFUTED, which
+  // degrades the verdict to INCOMPLETE. The bound fails closed, never open.
+  const MAX_REFUTED_FINDINGS = A.maxRefutedFindings || 6
+
+  // The critique lenses. Each one is a NAMED failure class — a way advisory documents
+  // have actually misled the person who acted on them. A single undirected "critique
+  // this" pass reliably finds the first problem and stops looking, which is why the gate
+  // is a set of lenses rather than one reviewer. Deliberately domain-neutral: a team's
+  // own failure modes belong in its context pack, which every lens prompt below carries.
+  const LENSES = [
+    { key: 'ungrounded', prompt: 'Hunt UNGROUNDED CLAIMS. The document asserts things about this repo, its state, or its history. Open the sources it cites and check them. A claim whose cited source does not say what the document says it says is a finding; so is a load-bearing assertion with no citable source at all.' },
+    { key: 'stale', prompt: 'Hunt STALE GROUNDING. Claims that were true of an earlier state of this repo and are not true now: a decision superseded in org memory, a context pack past its staleness date, work described as pending that already shipped or was already abandoned. Check the current tree and the current state files, not the narrative.' },
+    { key: 'scope', prompt: 'Hunt SCOPE EXPANSION. A recommendation that quietly grows the committed scope instead of deferring — new surfaces, new dependencies, new standing commitments the brief did not ask for and the document does not flag AS an expansion. Deferring is the default; expanding is a decision that must be named.' },
+    { key: 'hidden-cost', prompt: 'Hunt HIDDEN COST AND RISK. A recurring cost, an ongoing obligation, a migration, a security/privacy/compliance exposure, or a decision that requires human approval, which the recommendation depends on and does not name. Anything the reader would be angry to discover AFTER saying yes is a finding.' },
+    { key: 'undecidable', prompt: 'Hunt UNDECIDABLE ADVICE. A recommendation with no decision criteria, no named owner, and no way for anyone to tell later whether it was right. Advice that cannot be wrong cannot be acted on, and it is the failure mode that survives every other lens.' },
+  ]
+
+  const DOC_SCHEMA = {
+    type: 'object',
+    properties: {
+      recommendation: { type: 'string', description: 'the headline recommendation, one line' },
+      document: { type: 'string', description: 'repo-relative path of the document written or updated — REQUIRED, an advisory run whose output is only a chat message produced nothing' },
+      summary: { type: 'string' },
+      openQuestions: { type: 'array', items: { type: 'string' }, description: 'what you could not resolve from the repo — say so instead of guessing' },
+      needsHumanApproval: { type: 'array', items: { type: 'string' }, description: 'decisions in this document a human must approve before anyone acts on them' },
+      outOfZoneNeeds: { type: 'array', items: { type: 'string' } },
+      lessons: { type: 'array', items: { type: 'string' } },
+      orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
+    },
+    required: ['recommendation', 'document'],
+  }
+
+  const CRITIQUE_SCHEMA = {
+    type: 'object',
+    properties: {
+      findings: {
+        type: 'array',
+        description: 'empty is a valid, good result — do not invent findings to look thorough',
+        items: {
+          type: 'object',
+          properties: {
+            claim: { type: 'string', description: 'the sentence or claim in the document this is about, one line' },
+            issue: { type: 'string', description: 'what is wrong with it, one line' },
+            evidence: { type: 'string', description: 'the file, state record, or org-memory line that proves it — cite it concretely' },
+            severity: { type: 'string', enum: ['must-fix', 'nit'], description: 'must-fix = acting on this document as written would mislead the reader. Everything else is a nit.' },
+          },
+          required: ['claim', 'issue', 'severity'],
+        },
+      },
+      lessons: { type: 'array', items: { type: 'string' } },
+      orgLessons: { type: 'array', items: { type: 'string' }, description: 'durable CROSS-TEAM facts/decisions (rare; usually empty)' },
+    },
+    required: ['findings'],
+  }
+
+  const REFUTE_SCHEMA = {
+    type: 'object',
+    properties: {
+      refuted: { type: 'boolean', description: 'true only if you reproduced the document/repo state and the finding does NOT hold' },
+      reason: { type: 'string', description: 'one line, ≤300 chars, citing what you actually read' },
+    },
+    required: ['refuted', 'reason'],
+  }
+
+  const ADVISORY_GUARDRAILS = `
+NON-NEGOTIABLE CONSTRAINTS (advisory run — the output is a document, not code):
+- DO NOT create a branch, DO NOT commit, DO NOT push, DO NOT open a PR, DO NOT MERGE, and do not touch CI. The document stays in the working tree for a human to read.
+- You may create or edit files ONLY inside this team's ownership zones: ${cfg.ownership.join(', ')}. NEVER edit application source, tests, configuration, or build files — not to illustrate a point, not to prove a claim, not at all. Work that would require such an edit belongs IN the document and in your outOfZoneNeeds report field; it is never done here.
+- Ground every claim in something the reader can open: a repo path, a state record under .claude/teams/state/, or .claude/org-memory/. Cite it in the document. An assertion you cannot cite is an open question, not a finding — put it in openQuestions.
+- DO NOT execute stateful/outward operations (production DB writes, object-store pushes, queue drains, backfills, deploys, or sending anything to anyone).
+- If you learn something durable a future ${A.team}-team run should know, put it in your "lessons" report field (one line each).
+- If you learn something durable that affects OTHER teams too (an org-wide decision, contract, or invariant), put it in your "orgLessons" report field instead (one line each; rare — most runs report none).
+- REPORT FORMAT: every string field in your final structured report must be SHORT and SINGLE-LINE (≤300 chars, no newlines, no backticks, minimal quotes) — long multiline strings break the report parser and fail the whole stage. Put the detail in the document, never in the report.
+
+## Team context pack (${A.team})
+${cfg.pack}
+${cfg.memory ? `\n## Team lessons\n${cfg.memory}` : ''}`
+
+  // Every advisory return carries a `verdict`, and INCOMPLETE is what this framework
+  // reserves for "an agent died, so this is not a complete judgement" (see any recipe in
+  // .claude/workflows/recipes/). A blocked advisory run must never be mistakable for a
+  // document that simply had nothing to report.
+  const advBlocked = async (stage, note) => ({
+    ...(await blocked(stage, note)), verdict: 'INCOMPLETE', document: '', recommendation: '',
+  })
+
+  // ---- Advise: the lead writes the document -------------------------------
+  // "implement" is the routing class for the stage that produces the deliverable; for an
+  // advisory team the deliverable is prose, so the same class routes it.
+  phase('Decompose')
+  const advr = r('implement')
+  let doc = await withRetry(
+    'advise',
+    'Decompose',
+    (retry) => `You are the ${A.team} team lead (${cfg.roster.lead}) answering **${A.ticket}**.${retry ? ' (Previous attempt returned nothing — produce the full structured result.)' : ''}
+
+## Brief
+${A.brief}
+
+## Team mission
+${cfg.mission}
+
+This is an ADVISORY run: the deliverable is a WRITTEN DOCUMENT, not code and not a PR. Write it to a real file inside this team's ownership zones and report its path in the document field — a run that produces only a chat answer has produced nothing a human can review or come back to.
+
+Write for a decision-maker: lead with the single recommendation, then the evidence for it, then the tradeoff you are accepting and what would have to be true for you to be wrong. Name what you could not resolve in openQuestions rather than papering over it, and list anything requiring human sign-off in needsHumanApproval.
+
+Assume an adversarial reviewer will open every source you cite and check that it says what you claim. Write so that survives.
+${ADVISORY_GUARDRAILS}
+${cfg.orgMemory ? `\n## Org memory (cross-team)\n${cfg.orgMemory}` : ''}`,
+    { agentType: cfg.roster.lead, model: advr.model, effort: advr.effort, schema: DOC_SCHEMA }
+  )
+  if (!doc) return await advBlocked('advise')
+
+  // ---- Gate: multi-lens adversarial critique by a NON-AUTHOR --------------
+  // This is the code-review gate in document form, and it is the framework's load-bearing
+  // safety mechanism: the author never clears its own work.
+  phase('Gates')
+  const cqr = r('review')
+  const cfr = r('revision-fix')
+  // roster.test is the team's GATE seat (a fact-check / compliance role on an advisory
+  // team, per .claude/teams/TEMPLATE.yaml). If a team seated its own lead there, fall back
+  // to the standing reviewer rather than let an author sign off on itself.
+  const critic = cfg.roster.test && cfg.roster.test !== cfg.roster.lead ? cfg.roster.test : 'code-reviewer'
+  // Two independent refuters per finding, neither of them the document's author.
+  const REFUTERS = ['debug-expert', 'code-reviewer'].map((a) => (a === cfg.roster.lead ? critic : a))
+
+  const advHistory = []
+  let critiqueRounds = 0
+  let standing = []          // must-fix findings that survived refutation in the LAST round
+  let unverifiedFindings = 0 // findings nobody could check (run-level, latching)
+  const deadStages = []      // labels of advisory stages that returned nothing (run-level, latching)
+
+  while (critiqueRounds < MAX_CRITIQUE_ROUNDS) {
+    critiqueRounds++
+    const found = []
+    for (let i = 0; i < LENSES.length; i++) {
+      const lens = LENSES[i]
+      const label = `critique#${critiqueRounds}:${lens.key}`
+      const res = await call(
+        label,
+        'Gates',
+        `Critique the advisory document for **${A.ticket}** (${A.team} team) BEFORE a human acts on it. You did not write it and you are not here to improve its prose.
+
+## Document
+Read it at: ${doc.document}
+Headline recommendation: ${doc.recommendation}
+
+## The brief it is answering
+${A.brief}
+
+## Your lens
+${lens.prompt}
+
+Read the document AND the sources it rests on — do not review from the summary above. Report only findings you can evidence by citing something concrete. An empty findings array is a valid, good result; inventing findings to look thorough wastes the round and buries the real ones. severity=must-fix means acting on this document as written would mislead the reader; everything else is a nit.
+
+Do not edit the document, do not commit, do not open a PR, and do not merge anything.
+
+## Team context pack (${A.team})
+${cfg.pack}
+${cfg.orgMemory ? `\n## Org memory (cross-team)\n${cfg.orgMemory}` : ''}`,
+        { agentType: critic, model: cqr.model, effort: cqr.effort, schema: CRITIQUE_SCHEMA }
+      )
+      // A lens that DIED is not a lens that found nothing. Collapsing those two is how a
+      // degraded run certifies a document nobody checked — filtering the falsy results away
+      // IS that bug. Record the gap instead; it latches the verdict to INCOMPLETE below.
+      if (!res) {
+        deadStages.push(label)
+        continue
+      }
+      const items = Array.isArray(res.findings) ? res.findings : []
+      for (let j = 0; j < items.length; j++) {
+        // An unreadable entry inside a surviving lens's array is a malformed report, not a
+        // dead agent. It is kept as a must-fix rather than skipped: index-aligned recovery,
+        // failing closed, exactly as recipes/audit.js does at its inner layer.
+        const f = items[j] || {
+          claim: '(unreadable)',
+          issue: `lens ${lens.key} returned an unreadable finding at index ${j} — inspect the document by hand`,
+          severity: 'must-fix',
+        }
+        if (f.severity === 'nit') continue
+        found.push({ ...f, lens: lens.key })
+      }
+    }
+
+    // Refutation. Two independent refuters per finding: a finding dies ONLY if every live
+    // refuter refutes it, so one confused refuter cannot delete a real problem. A finding
+    // whose refuters ALL died is UNVERIFIED — it STANDS and it degrades the run. Dropping
+    // it would lose the finding and the fact that nobody ever checked it, which is exactly
+    // the failure the least-certain findings would slip through.
+    const judged = []
+    for (let i = 0; i < found.length; i++) {
+      const f = found[i]
+      if (i >= MAX_REFUTED_FINDINGS) {
+        // Past the cap: the finding is kept, it STANDS, and it counts as unverified — a
+        // finding the gate declined to check is exactly as uncertified as one whose
+        // refuters died, and counting it is what stops the cap from becoming a quiet
+        // approval path for documents that produced too many findings to check.
+        unverifiedFindings++
+        judged.push({ ...f, stands: true, verified: false, refuteReason: `beyond the ${MAX_REFUTED_FINDINGS}-finding refutation cap — never checked` })
+        continue
+      }
+      let live = 0
+      let refutals = 0
+      let why = ''
+      for (let v = 0; v < REFUTERS.length; v++) {
+        const label = `refute#${critiqueRounds}.${i + 1}.${v + 1}`
+        const vote = await call(
+          label,
+          'Gates',
+          `Adversarially try to REFUTE this critique finding against the advisory document for **${A.ticket}**. Your job is to defend the document, not the finding.
+
+## Document
+Read it at: ${doc.document}
+
+## The finding
+Lens: ${f.lens}
+Claim under attack: ${f.claim}
+Issue alleged: ${f.issue}
+Evidence alleged: ${f.evidence || '(none cited)'}
+
+READ-ONLY: open the document and the sources yourself. Return refuted=true only if you reproduced the state and the finding does NOT hold — the cited evidence says something else, the document does in fact address it, or the concern is explicitly out of the brief's scope. If you cannot reproduce the finding either way, return refuted=false: an unrefutable finding stays on the table. Change nothing, commit nothing.`,
+          { agentType: REFUTERS[v], model: cqr.model, effort: cqr.effort, schema: REFUTE_SCHEMA }
+        )
+        if (!vote) {
+          deadStages.push(label)
+          continue
+        }
+        live++
+        if (vote.refuted === true) refutals++
+        else if (!why) why = vote.reason || ''
+      }
+      const verified = live > 0
+      // Survives unless EVERY live refuter refuted it. No live refuter ⇒ it stands, unverified.
+      const stands = verified ? refutals < live : true
+      if (!verified) unverifiedFindings++
+      judged.push({ ...f, stands, verified, refuteReason: why || (verified ? 'refuted by every live refuter' : 'no refuter reported — finding never checked') })
+    }
+
+    standing = []
+    for (let i = 0; i < judged.length; i++) if (judged[i].stands) standing.push(judged[i])
+    advHistory.push({
+      round: critiqueRounds, gate: 'critique',
+      items: standing.map((f) => `${f.lens}: ${f.issue}`),
+      ...(deadStages.length ? { deadStages: deadStages.slice() } : {}),
+      ...(unverifiedFindings ? { unverifiedFindings } : {}),
+    })
+
+    if (!standing.length) break
+    // The budget is spent: stop here rather than push a revision nothing will look at.
+    // This is why the advisory path needs no confirm-only pass — a revision is only ever
+    // dispatched when a further critique round is guaranteed to read the result, so the
+    // reported findings always describe the document as it now stands on disk.
+    if (critiqueRounds >= MAX_CRITIQUE_ROUNDS) break
+
+    const revised = await call(
+      `revise#${critiqueRounds}`,
+      'Gates',
+      `Revise the advisory document for **${A.ticket}** — the critique gate found must-fix problems. Address EVERY item below in the document at ${doc.document}, then report.
+
+## Must-fix findings
+${standing.map((f, i) => `${i + 1}. [${f.lens}] ${f.claim} — ${f.issue}${f.evidence ? ` (evidence: ${f.evidence})` : ''}`).join('\n')}
+
+Fix the document, do not argue with the gate in your report. Where a finding is a claim you cannot actually ground, remove or soften the claim rather than hunting for support for it — an unsupportable claim is the defect, not the reviewer.
+${ADVISORY_GUARDRAILS}`,
+      { agentType: cfg.roster.lead, model: cfr.model, effort: cfr.effort, schema: DOC_SCHEMA }
+    )
+    // A revision that did not report is a revision that may not have happened. The next
+    // critique round reads the document on disk regardless, so the run stays honest — but
+    // the lost stage still latches the verdict to INCOMPLETE, because a run that dropped a
+    // stage cannot certify what it produced.
+    if (!revised) deadStages.push(`revise#${critiqueRounds}`)
+    else doc = { ...doc, ...revised }
+  }
+
+  // Shared contract with .claude/workflows/recipes/: INCOMPLETE means "an agent died, so
+  // this is not a complete judgement". It OUTRANKS every other verdict — a gate that lost
+  // a lens, lost a refuter, or lost a revision cannot certify a document, and letting a
+  // clean-looking result mask the loss is how a degraded run gets acted on.
+  const degraded = deadStages.length > 0 || unverifiedFindings > 0
+  const verdict = degraded ? 'INCOMPLETE' : standing.length ? 'REVISE' : 'APPROVED'
+  const advStatus = verdict === 'APPROVED' ? 'document-ready' : verdict === 'REVISE' ? 'critique-stalemate' : 'needs-human'
+
+  // ---- Report: telemetry + state writes (skipped in dry-run) --------------
+  phase('Report')
+  // Same shape as the delivery path's record so /team status and scripts/run_metrics.py
+  // read an advisory run without special-casing: same keys, branch and pr empty because
+  // this path creates neither. See the delivery Report phase for why the state-writer's
+  // own cost is recoverable rather than recorded.
+  const advTokensBeforeReport = DRY ? 0 : budget.spent()
+  const advTelemetry = {
+    runId: A.runId, team: A.team, ticket: A.ticket, size: A.size || 'medium',
+    runnerVersion: RUNNER_VERSION,
+    timestamp: A.timestamp, branch: '', pr: '', status: advStatus, verdict,
+    rounds: critiqueRounds, ciAttempts: 0, ciInfraReruns: 0, gateSteps: critiqueRounds,
+    tokensBeforeReport: advTokensBeforeReport,
+    // Always true on this path: a revision is only dispatched when another critique round
+    // will read it, so the reported verdict always describes the document on disk.
+    verifiedAtHead: true,
+    document: doc.document || '', deadStages, unverifiedFindings,
+    stages, history: advHistory,
+  }
+  let advStateNote
+  if (!DRY) {
+    const advmr = r('mechanical')
+    const stateRes = await withRetry(
+      'report:state',
+      'Report',
+      (retry) => `Persist team-run state.${retry ? ' (Previous attempt failed — redo idempotently; steps may be partially applied.)' : ''} Work in the MAIN repo checkout (run \`git rev-parse --show-toplevel\` from your CWD; use absolute paths — do NOT cd into any worktree). All paths are under <repo>/.claude/teams/state/ — create dirs if missing (mkdir -p state/runs), and seed board.json with {"runs":[]} if absent.
+
+1. Write EXACTLY this JSON to state/runs/${A.runId}.json:
+${JSON.stringify(advTelemetry)}
+
+2. Append EXACTLY this line to state/events.jsonl:
+${JSON.stringify({ ts: A.timestamp, run: A.runId, team: A.team, type: advStatus, ticket: A.ticket, pr: '' })}
+
+3. Update state/board.json with jq: find .runs[] entry with .id=="${A.runId}" and set .status="${advStatus}", .pr="", .branch=""; if no entry exists, append {"id":"${A.runId}","team":"${A.team}","ticket":"${A.ticket}","status":"${advStatus}","branch":"","pr":"","worktree":"","ts":"${A.timestamp}"}.
+
+${lessons.length
+  ? `4. Append to .claude/teams/memory/${A.team}.md:\n\n## ${A.timestamp} ${A.ticket}\n${lessons.map((l) => `- (${l.stage}) ${l.lesson}`).join('\n')}\n\nNOTE: the memory file IS tracked by git but do NOT commit it here — memory commits ride the next framework PR.`
+  : '4. No lessons this run — do not touch the memory file.'}
+
+${orgLessons.length
+  ? `5. Append to .claude/org-memory/lessons.md, directly under the "## Candidates (pending curation)" heading (if the file or heading is missing, skip this step and say so):\n${orgLessons.map((l) => `- [ ] (${A.runId}) (${l.stage}) ${l.lesson}`).join('\n')}\n\nNOTE: org-memory files are tracked by git but do NOT commit them — curation commits are human.`
+  : '5. No org-lesson candidates this run — do not touch .claude/org-memory/.'}
+
+Do not commit or push anything. State files under state/ are gitignored runtime data.`,
+      { model: advmr.model, effort: advmr.effort }
+    )
+    if (!stateRes) advStateNote = 'state persistence failed after retry — board/telemetry may be stale'
+  }
+
+  log(`team-run ${A.runId}: advisory ${verdict} (${advStatus}) after ${critiqueRounds} critique round(s)${standing.length ? ` — ${standing.length} standing finding(s)` : ''}${degraded ? ` — DEGRADED: ${deadStages.length} lost stage(s), ${unverifiedFindings} unverified finding(s)` : ''}. No branch, no PR, nothing merged.`)
+  return {
+    ...advTelemetry,
+    recommendation: doc.recommendation || '',
+    openQuestions: doc.openQuestions || [],
+    needsHumanApproval: doc.needsHumanApproval || [],
+    outOfZoneNeeds: doc.outOfZoneNeeds || [],
+    critique: { verdict, standing, deadStages, unverifiedFindings },
+    ...(advStateNote ? { stateNote: advStateNote } : {}),
+    trace: DRY ? trace : undefined,
+    note: verdict === 'INCOMPLETE'
+      ? 'Advisory run lost a gate stage — the document is NOT certified. Re-run before acting on it.'
+      : verdict === 'REVISE'
+        ? 'Critique budget spent with findings still standing — the document needs human arbitration.'
+        : 'Document reviewed by a non-author critique gate and ready for a human. Nothing committed, no PR.',
+  }
+}
 
 // ---- Decompose -----------------------------------------------------------
 phase('Decompose')

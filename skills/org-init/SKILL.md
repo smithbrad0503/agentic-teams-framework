@@ -145,6 +145,12 @@ Use AskUserQuestion where options fit; keep it to ~6 questions:
    pyproject.toml, Makefile, go.mod…) instead of trusting the answer blindly.
 3. **Functions** (multi-select) — which parts of the org to staff:
    delivery (code → gated PRs) · product advisory · growth/marketing · platform-ops.
+   Say what the two shapes actually produce, so the choice is informed: a **delivery**
+   team returns a code-reviewed, CI-green PR you merge; an **advisory** team returns a
+   written recommendation that a non-author critique gate has attacked, and it creates
+   no branch and no PR. Offer at least one advisory team to anyone who picks product,
+   growth, or business-ops work — that work has no PR to gate, and running it through
+   the delivery pipeline would demand a CI gate it can never pass.
 4. **Model tiers** — which model identifiers this setup exposes for
    strong / mid / cheap (suggest what you know is available; these replace the
    placeholders in model-routing.yaml).
@@ -181,15 +187,24 @@ CONTENT — never paste code into a pack.
 
 Staff teams from the library roster (`${CLAUDE_PLUGIN_ROOT}/.claude/agents/`):
 
-| Function | Team yaml | type/output | Lead | Specialists (pick for the stack) | Test |
-|---|---|---|---|---|---|
-| Delivery | `dev.yaml` (split into `backend.yaml`/`frontend.yaml` only when zones are truly disjoint) | delivery/pr | tech-lead | backend-expert, frontend-expert, api-expert, database-expert — as the stack requires | qa-tester |
-| Product advisory | `product.yaml` | advisory/document | product-manager | ux-designer, analytics-expert | code-reviewer (fact-check gate) |
-| Growth | `growth.yaml` | advisory/document | marketing-expert | copywriter | legal-expert (compliance gate) |
-| Platform-ops | `platform.yaml` | delivery/pr | tech-lead | cloud-infra-expert, sre, security-expert | qa-tester |
+| Function | Team yaml | type/output | gates | Lead | Specialists (pick for the stack) | roster.test |
+|---|---|---|---|---|---|---|
+| Delivery | `dev.yaml` (split into `backend.yaml`/`frontend.yaml` only when zones are truly disjoint) | delivery/pr | `[code-review, ci-green]` | tech-lead | backend-expert, frontend-expert, api-expert, database-expert — as the stack requires | qa-tester |
+| Product advisory | `product.yaml` | advisory/document | `[critique]` | product-manager | ux-designer, analytics-expert | code-reviewer (fact-check gate) |
+| Growth | `growth.yaml` | advisory/document | `[critique]` | marketing-expert | copywriter | legal-expert (compliance gate) |
+| Platform-ops | `platform.yaml` | delivery/pr | `[code-review, ci-green]` | tech-lead | cloud-infra-expert, sre, security-expert | qa-tester |
+
+On a **delivery** team `roster.test` is the agent that writes tests. On an **advisory**
+team it is the **critique-gate seat**: the non-author who attacks the document before a
+human reads it. It must never be the same agent as the lead — a lead seated there is
+ignored and the runner falls back to `code-reviewer`, because an author may not clear its
+own work. An advisory team's ownership zones are DOCUMENT paths (`docs/product/`,
+`docs/business/`, …), never application source: an advisory run is forbidden from editing
+source at all, so a source zone on an advisory team is a bug in the org chart.
 
 Always materialize `code-reviewer`, `debug-expert`, and `docs-author` even if no
-roster names them — the runner hard-requires those three agentTypes.
+roster names them — the runner hard-requires those three agentTypes (advisory runs use
+`code-reviewer` and `debug-expert` as the two independent refuters behind the critique gate).
 
 ## 6. Materialize (staging first)
 
@@ -220,9 +235,13 @@ Generate, each file with its provenance header:
 2. **Teams** → `teams/<team>.yaml` from `teams/TEMPLATE.yaml` (drop the
    template comments): name = filename stem, type/output per the table,
    one-line mission from the interview, roster, REAL ownership zones (every
-   path must exist), `context_pack: context-packs/<team>.md`,
-   `gates: [code-review, ci-green]`, the template's budget_defaults,
-   `routing: {}`.
+   path must exist), `context_pack: context-packs/<team>.md`, the template's
+   budget_defaults, `routing: {}`, and `gates` MATCHING the output mode —
+   `gates: [code-review, ci-green]` for `output: pr`, `gates: [critique]` for
+   `output: document`. The validator in step 8 rejects a mismatch: an advisory
+   run opens no PR, so `ci-green` names a check it can never satisfy. A
+   document-output team whose ownership zones do not yet exist needs those doc
+   directories created (with a seed file) before validation will pass.
 3. **Context packs** → `teams/context-packs/<team>.md`: first line
    `# Context Pack — <team>`, provenance on line 2, staleness line with today's
    date and "(org-init)" — this line MUST contain the literal token

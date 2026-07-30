@@ -459,3 +459,96 @@ def test_registry_entries_are_read_from_bullet_and_table_formats(tmp_path: Path)
     assert validate_org.entry_name("| ux-designer | flows, wireframes |") == "ux-designer"
     assert validate_org.entry_name("- **sre** — incident response") == "sre"
     assert validate_org.entry_name("  sre.md  incident response") == "sre"
+
+
+# --- advisory teams: gates are validated against what advisory actually runs ---
+
+ADVISORY_TEAM = """# agentic-org: v0.1.0 source=.claude/teams/TEMPLATE.yaml
+name: product
+type: advisory
+output: document
+mission: Decide what to build and why, as reviewed written recommendations.
+roster:
+  lead: tech-lead
+  specialists: [backend-expert]
+  test: code-reviewer
+ownership:
+  - docs/product/
+context_pack: context-packs/product.md
+gates: [critique]
+budget_defaults: { small: 60000, medium: 150000, large: 300000 }
+routing: {}
+"""
+
+ADVISORY_PACK = (
+    "# Context Pack — product\n"
+    + PROV.format(src=".claude/teams/context-packs/TEMPLATE.md")
+    + "\n> Staleness: refreshed 2026-07-25 (org-init)\n\n"
+    "## Map\n- Product docs: `docs/product/`\n\n"
+    "## Trip-wires\n- none yet\n\n"
+    "## Current state\n- fresh org — nothing in flight\n"
+)
+
+
+def add_advisory_team(root: Path) -> Path:
+    """Wire a second, ADVISORY team alongside the delivery one."""
+    claude = root / ".claude"
+    (root / "docs" / "product").mkdir(parents=True)
+    path = claude / "teams" / "product.yaml"
+    path.write_text(ADVISORY_TEAM)
+    (claude / "teams" / "context-packs" / "product.md").write_text(ADVISORY_PACK)
+    (claude / "teams" / "memory" / "product.md").write_text(
+        "# Team lessons — product\n" + PROV.format(src=".claude/teams/memory/TEMPLATE.md") + "\n"
+    )
+    return path
+
+
+def test_advisory_team_with_a_critique_gate_passes(tmp_path: Path) -> None:
+    """The claim the template has been making for two releases must now validate."""
+    root = make_valid_org(tmp_path)
+    add_advisory_team(root)
+    assert run(root) == 0
+
+
+def test_advisory_team_declaring_ci_green_fails(tmp_path: Path, capsys) -> None:
+    """An advisory run opens no PR, so ci-green names a check it can never satisfy."""
+    root = make_valid_org(tmp_path)
+    target = add_advisory_team(root)
+    target.write_text(target.read_text().replace(
+        "gates: [critique]", "gates: [code-review, ci-green]"
+    ))
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "product.yaml" in err and "advisory team's gates must be [critique]" in err
+
+
+def test_delivery_team_is_still_held_to_ci_green(tmp_path: Path, capsys) -> None:
+    """Relaxing the rule for advisory must not relax it for delivery."""
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "gates: [code-review, ci-green]", "gates: [code-review]"
+    ))
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "dev.yaml" in err and "delivery team's gates must be [code-review, ci-green]" in err
+
+
+def test_delivery_team_cannot_borrow_the_advisory_gate(tmp_path: Path) -> None:
+    root = make_valid_org(tmp_path)
+    target = root / ".claude" / "teams" / "dev.yaml"
+    target.write_text(target.read_text().replace(
+        "gates: [code-review, ci-green]", "gates: [critique]"
+    ))
+    assert run(root) == 1
+
+
+def test_type_and_output_must_agree(tmp_path: Path, capsys) -> None:
+    """team-run.js branches on `output` alone, so a yaml whose type contradicts it
+    would run as a mode nobody declared."""
+    root = make_valid_org(tmp_path)
+    target = add_advisory_team(root)
+    target.write_text(target.read_text().replace("type: advisory", "type: delivery"))
+    assert run(root) == 1
+    err = capsys.readouterr().err
+    assert "disagree" in err and "product.yaml" in err

@@ -58,6 +58,16 @@ STAGE_CLASSES = {
 ROUTING_KEYS = STAGE_CLASSES | {"fallback"}
 TIER_PLACEHOLDERS = {"strong", "mid", "cheap"}
 REVIEW_EFFORTS = {"high", "xhigh", "max"}
+# A team's output mode decides which gates team-run.js actually runs, so it is what the
+# declared `gates` list is validated against. `output` — not `type` — is the field the
+# runner branches on; the two are required to agree so the yaml cannot lie about itself.
+TYPE_FOR_OUTPUT = {"pr": "delivery", "document": "advisory"}
+# Delivery: the runner opens a PR, so it can and does run both gates.
+DELIVERY_GATES = ["code-review", "ci-green"]
+# Advisory: the runner writes a document and never creates a branch or a PR. There is no
+# PR for `ci-green` to watch, so requiring it declares a gate that can never be satisfied.
+# What advisory DOES run is one adversarial critique gate by a non-author.
+ADVISORY_GATES = ["critique"]
 ORG_MEMORY_HEADERS = {
     "decisions.md": "# Org decisions",
     "architecture.md": "# Org architecture facts",
@@ -99,8 +109,15 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
         errs.append(f"{path}: name must equal the filename stem {name!r}")
     if cfg.get("type") not in {"delivery", "advisory"}:
         errs.append(f"{path}: type must be delivery|advisory")
-    if cfg.get("output") not in {"pr", "document"}:
+    output = cfg.get("output")
+    if output not in TYPE_FOR_OUTPUT:
         errs.append(f"{path}: output must be pr|document")
+    elif cfg.get("type") in {"delivery", "advisory"} and cfg["type"] != TYPE_FOR_OUTPUT[output]:
+        errs.append(
+            f"{path}: type {cfg['type']!r} and output {output!r} disagree — team-run.js branches on "
+            f"output alone, so this team would run as {TYPE_FOR_OUTPUT[output]}. Set "
+            f"'type: {TYPE_FOR_OUTPUT[output]}', or change output to the mode you meant"
+        )
     if not cfg.get("mission"):
         errs.append(f"{path}: mission required")
     roster = cfg.get("roster") or {}
@@ -128,8 +145,18 @@ def validate_team_yaml(path: Path, claude: Path) -> list[str]:
     pack_rel = cfg.get("context_pack") or ""
     if not pack_rel or not (claude / "teams" / pack_rel).is_file():
         errs.append(f"{path}: context pack missing: {pack_rel!r}")
-    if cfg.get("gates") != ["code-review", "ci-green"]:
-        errs.append(f"{path}: gates must be [code-review, ci-green]")
+    # Gates are validated against what the team's output mode actually runs. `ci-green` is
+    # a DELIVERY requirement: an advisory run never opens a PR, so there is no CI for that
+    # gate to watch and declaring it promises a check nothing can ever perform.
+    if output == "document":
+        if cfg.get("gates") != ADVISORY_GATES:
+            errs.append(
+                f"{path}: an advisory team's gates must be [{', '.join(ADVISORY_GATES)}] — advisory "
+                "runs one adversarial critique gate by a non-author and opens no PR, so 'ci-green' "
+                "names a check it can never satisfy"
+            )
+    elif cfg.get("gates") != DELIVERY_GATES:
+        errs.append(f"{path}: a delivery team's gates must be [{', '.join(DELIVERY_GATES)}]")
     budgets = cfg.get("budget_defaults")
     if budgets is None:
         budgets = {}

@@ -89,7 +89,14 @@ def test_team_yaml_schema(team: str) -> None:
             assert (ROOT / zone).exists(), f"{team}: ownership zone does not exist: {zone}"
 
     assert (TEAMS / cfg["context_pack"]).is_file(), f"{team}: context pack missing"
-    assert cfg["gates"] == ["code-review", "ci-green"]
+    # Gates must match the output mode: an advisory run opens no PR, so `ci-green` names a
+    # check it can never satisfy. Mirrors scripts/validate_org.py.
+    if cfg["output"] == "document":
+        assert cfg["type"] == "advisory", f"{team}: output document requires type advisory"
+        assert cfg["gates"] == ["critique"], f"{team}: an advisory team's gates must be [critique]"
+    else:
+        assert cfg["type"] == "delivery", f"{team}: output pr requires type delivery"
+        assert cfg["gates"] == ["code-review", "ci-green"]
 
     budgets = cfg["budget_defaults"]
     assert set(budgets) == {"small", "medium", "large"}
