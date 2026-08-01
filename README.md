@@ -166,12 +166,21 @@ Encoded directly in the runner and guardrails (each was paid for in debugging):
 
 ## Known limitations
 
-- **No generalist software-engineer identity.** The delivery roster's specialists
-  (`backend-expert`, `frontend-expert`, `api-expert`, `database-expert`) are all
-  web-service-shaped. A plain library or algorithm project with no web/API/DB
-  surface has no naturally-fitting specialist to staff — `/org-init` will pick
-  the least-wrong option (typically `backend-expert`) and lean on that agent's
-  PROJECT-CONTEXT block to override the mismatch. Not a bug, just a roster gap.
+- **The specialist bodies are web-service-shaped; the generalist seat carries method,
+  not domain depth.** Four delivery specialists (`backend-expert`, `frontend-expert`,
+  `api-expert`, `database-expert`) assume a web/API/DB surface. Projects without one —
+  a game, a CLI, a library, a data pipeline, embedded or tooling code — are staffed by
+  `software-engineer` instead, which `/org-init` selects when the repo scan finds no
+  web/API/DB surface. It is honestly stack-agnostic: it carries engineering method
+  (match the surrounding idiom, discover the project's real build/test/lint commands
+  rather than assuming them, smallest change, pin behavior in the project's own testing
+  idiom, never weaken a test) and takes every specific from its PROJECT-CONTEXT block
+  and the team's context pack. Two things it does **not** solve. It adds no
+  engine- or platform-specific knowledge — there is still no Unity/Unreal/Godot,
+  shader, or embedded-toolchain identity, and a project that needs that depth should
+  write one. And it does nothing for **ownership zones**: a monorepo whose real
+  boundaries don't line up with directory paths still has a zone problem, and no
+  roster addition fixes that.
 - **`/org-init` only customizes the PROJECT-CONTEXT block of each agent** — the
   surrounding template body (stack examples, sample tasks) stays generic even
   when it doesn't match the project. This is deliberate: it's what lets
