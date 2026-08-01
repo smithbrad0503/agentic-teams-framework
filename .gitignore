@@ -18,3 +18,6 @@ __pycache__/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Agent worktrees — ephemeral isolated checkouts, never part of the library
+.claude/worktrees/

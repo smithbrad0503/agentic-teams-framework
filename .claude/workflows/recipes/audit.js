@@ -59,9 +59,21 @@ const audited = await pipeline(
       `Audit ${A.target} for: ${item}\n\nREAD-ONLY: inspect code and config, change NOTHING. Report concrete findings only (file, one-line issue, severity). Zero findings is a valid, good result — do not invent issues.`,
       { label: `audit:${String(item).slice(0, 40)}`, phase: 'Audit', schema: FINDINGS_SCHEMA }
     ),
-  (r) =>
-    parallel(
-      ((r && r.findings) || []).map((f) => () =>
+  (r, item) =>
+    // A dead stage-1 auditor returns NULL — it does not throw. `(r && r.findings) || []`
+    // would turn that into an empty fan-out, an empty array, and a checklist item that
+    // reads CLEAN because nobody looked. The outer recovery below cannot catch it: an
+    // empty array IS an array. Only here, before the fan-out, can the two be told apart.
+    !r || !Array.isArray(r.findings)
+      ? [{
+          file: '(unknown)',
+          issue: `(checklist item never audited: "${item}")`,
+          severity: 'unknown',
+          verdict: 'unverified',
+          verifyReason: 'the audit stage returned no report for this item',
+        }]
+      : parallel(
+          r.findings.map((f) => () =>
         agent(
           `Adversarially verify this audit finding in ${A.target} — try to REFUTE it:\n${f.file}: ${f.issue} (${f.severity})\n\nREAD-ONLY. Return real=true only if the issue genuinely exists as described; when uncertain, real=false.`,
           { label: `verify:${f.file}`, phase: 'Verify', schema: VERDICT_SCHEMA }

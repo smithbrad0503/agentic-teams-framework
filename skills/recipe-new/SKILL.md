@@ -214,6 +214,27 @@ Rules:
 
 ### 4.6 A dead agent must never silently vanish
 
+**A null return is not the same as a thrown stage, and they need different guards.**
+`agent()` returns `null` when it fails — that is the COMMON case; throwing is rare.
+`pipeline` yields `null` only for a stage that *threw*, so an outer
+`Array.isArray(r) ? r : [recovery]` catches the rare path and misses the common one:
+
+```js
+// WRONG — a dead stage-1 becomes an empty fan-out, an empty array, and a CLEAN result
+(r) => parallel(((r && r.findings) || []).map(...))
+
+// RIGHT — tell the two apart BEFORE fanning out
+(r, item) => !r || !Array.isArray(r.findings)
+  ? [{ /* explicit unverified marker naming `item` */ }]
+  : parallel(r.findings.map(...))
+```
+
+An empty array IS an array, so no downstream recovery can distinguish "looked, found
+nothing" from "never looked". Only stage 2 can. This exact bug was fixed three times
+in `audit.js` and `consistency-sweep.js` — the dead verifier, the thrown stage, and
+then this. **Do not scaffold this pattern by copying stage 2 from an older recipe
+without checking which of the three it handles.**
+
 `agent()` returns null when the subagent produces no report, and `parallel()` /
 `pipeline()` resolve a thunk that threw to null. **`.filter(Boolean)` over such an
 array is precisely how work disappears without a trace** — the run comes back
