@@ -183,7 +183,39 @@ where each candidate ownership zone lives, project commands, and 2–3 obvious
 trip-wires (odd conventions, generated dirs, migration rules). POINTERS, NOT
 CONTENT — never paste code into a pack.
 
-## 5. Roster selection (curate + customize — never invent agents)
+### 4a. Integration detection (evidence only)
+
+While scanning, also build a candidate list of the **third-party integrations
+this repo actually depends on** — Stripe, Supabase, Twilio, Shopify, Kafka,
+Airflow, Snowflake, Unity, whatever it happens to be. Step 5a turns some of
+these into generated agents, so the quality of this list is the quality of that
+generation. Look at, in roughly this order of strength:
+
+| Signal | Where |
+|---|---|
+| Direct dependency declaration | `package.json`, `pyproject.toml` / `requirements.txt`, `go.mod`, `Gemfile`, `Cargo.toml`, `composer.json`, `*.csproj`, `Package.swift` |
+| Import / SDK usage in source | `grep -rn "stripe\|@supabase/" src/ app/` and equivalents — the SDK actually being called |
+| Config directory or service config file | `supabase/`, `terraform/`, `docker-compose.yml`, `vercel.json`, `serverless.yml`, `fly.toml`, `firebase.json` |
+| Environment-variable names | `.env.example`, `.env.sample`, CI workflow `env:` blocks, deployment config |
+| Integration-shaped source paths | webhook route handlers, client/singleton modules (`lib/stripe.ts`), migration dirs, generated types |
+
+**A guess is not evidence.** For every candidate, record a concrete
+`path:line` you can show the user. If you cannot point at a file in this repo
+proving the dependency is used, the candidate does not exist — drop it. Do not
+infer an integration from the user's answers in step 3, from the product
+description, from a framework's reputation, or from what a project like this
+"usually" has. The interview cannot create evidence; only the repo can.
+
+**Direct, not transitive.** A name that appears only in a lockfile
+(`package-lock.json`, `poetry.lock`, `go.sum`) is a transitive dependency of
+something else, and staffing an agent for it is nonsense. Require BOTH a direct
+declaration in a manifest AND at least one second signal (an import, a config
+file, or an env var). One signal alone is a lead, not a finding.
+
+Carry the evidence forward verbatim — step 5a shows it to the user, and the
+generated agent's body is written from it.
+
+## 5. Roster selection (curate roles, generate integrations)
 
 Staff teams from the library roster (`${CLAUDE_PLUGIN_ROOT}/.claude/agents/`):
 
@@ -224,6 +256,112 @@ Always materialize `code-reviewer`, `debug-expert`, and `docs-author` even if no
 roster names them — the runner hard-requires those three agentTypes (advisory runs use
 `code-reviewer` and `debug-expert` as the two independent refuters behind the critique gate).
 
+### 5a. Integration specialists (the ONE thing you may generate)
+
+Everything above this line is curation. This step is the single exception, and it exists
+because agent identities fall on two axes that behave completely differently:
+
+- **Role identities** — backend, frontend, api, database, security, sre, qa, docs, the
+  generalist. Enumerable, finite, and the library above already covers them.
+  **NEVER generate one of these.** If the need is "someone who writes server-side code",
+  that is `backend-expert`; if the stack has no web/API/DB surface at all, that is
+  `software-engineer`. Inventing a second one splits routing between two agents with the
+  same remit and the decompose stage picks arbitrarily between them.
+- **Integration / domain identities** — Stripe, Supabase, Twilio, Shopify, Kafka, Airflow,
+  Snowflake, Unity, Algolia, Segment. **Unbounded and un-enumerable** — no library can
+  ever cover this axis, so curation structurally cannot reach it. This is the gap a human
+  fills by hand-writing an agent today, and it is what you generate here.
+
+**The forbidden-duplicate test.** Before generating anything, ask: *would this agent's
+remit survive the vendor disappearing?* If yes it is a role, it already exists, staff
+that instead. Enforce it mechanically too:
+
+- The name MUST be the integration's own name — `stripe-expert`, `supabase-expert`,
+  `kafka-expert`. NEVER a role word with a qualifier (`backend-expert-2`,
+  `payments-backend`, `api-expert-stripe`, `senior-frontend`).
+- Run `ls "${CLAUDE_PLUGIN_ROOT}/.claude/agents/"` first. If the name you are about to
+  generate is already there — or is a synonym of one that is — do not generate it. Staff
+  the library agent.
+- No generated agent may be a team's `lead` or `roster.test`. Those seats are role seats
+  (`tech-lead`, `qa-tester`, `code-reviewer`…); an integration specialist is always a
+  `specialists` entry.
+
+**Which few actually matter (hard cap).** A repo with 60 dependencies must not produce
+60 agents. From the 4a candidate list, keep only those where ALL of these hold:
+
+1. It is load-bearing for the product's core value — remove it and the product stops
+   doing its main job.
+2. It has a real operational surface the project must get right: webhooks and signature
+   verification, sandbox-vs-live credentials, migrations, quotas and rate limits, retry
+   and idempotency semantics, generated types, its own CLI. A library called from three
+   lines in one file has no such surface — a role specialist plus its PROJECT-CONTEXT
+   block already handles it.
+3. Its footprint is non-trivial: more than a couple of files touch it.
+
+Then rank the survivors by footprint (files touched) and cap: **at most 3 per team, and
+at most 5 across the whole org.**
+
+**Propose before generating — never generate silently.** Show the ranked candidates with
+their evidence (`path:line` per signal) and the proposed name and one-line remit for each,
+mark which are inside the cap, and let the user add, drop, or rename. An unused transitive
+dependency must not become a staffed agent, and only the user knows which of two equally
+well-evidenced integrations is actually strategic. Generate exactly what they confirm; if
+they confirm none, generate none and continue — zero generated agents is a normal outcome.
+
+**What each generated agent must contain.** It is materialized in step 6 alongside the
+copied agents and is held to every check in `scripts/validate_org.py` (see the "Adding an
+agent to a materialized org" checklist in that file's module docstring — it is the spec):
+
+1. **Frontmatter** — `name:` equal to the filename stem, plus `team:`, `tools:`, `model:`
+   copied from the closest library specialist's frontmatter shape (an integration
+   specialist that writes code gets `team: engineering` and the `backend-expert` tool set).
+2. **`description:` — this is routing logic, not prose.** Read
+   `${CLAUDE_PLUGIN_ROOT}/.claude/agents/backend-expert.md`'s description and follow its
+   shape exactly: what the agent IS for, then `Do NOT use for …`, naming the alternative
+   agent by name. A generated integration agent MUST hand general work in its area back to
+   the role specialist and reserve itself for the integration's own specifics — otherwise
+   it competes with `backend-expert` for every server-side request. Concretely:
+
+   ```
+   description: Use this agent for Stripe-specific work in this repo — Checkout and Billing
+     session creation, webhook signature verification and event handling in
+     app/api/webhooks/stripe/route.ts, price/product ID wiring and its env vars, subscription
+     lifecycle and proration, test-vs-live key separation. Do NOT use for general server-side
+     routes, ORM models, or auth (use backend-expert), for REST contract and route layout
+     (use api-expert), or for the schema and migrations behind billing tables (use
+     database-expert).
+   ```
+
+3. **Provenance marker** — instead of a library `source=` line, within the first 12 lines
+   (same placement rule as any agent: immediately after the closing frontmatter `---`):
+
+   ```
+   <!-- agentic-org: project-owned kind=integration generated-by=/org-init v<version> — no upstream library file; /org-update never syncs or overwrites it -->
+   ```
+
+   The literal token `agentic-org: project-owned` is what the validator recognises and
+   what `grep -rn 'agentic-org: project-owned' .claude/agents/` finds; the rest of the
+   line is for the human reading the file. Do NOT omit the header instead — a file with
+   no header is indistinguishable from one whose header was forgotten, and the validator
+   rejects it.
+4. **Body grounded in the scan, not in vendor documentation.** Write it from what step 4a
+   actually found: where the integration is configured in THIS repo, which files call it,
+   which env vars it reads, its migrations/webhooks/generated-type paths, and the
+   project's own conventions and trip-wires around it. **If you cannot cite a file in this
+   repo for a claim, leave the claim out.** Never paste vendor docs, API reference tables,
+   or version-specific snippets — they go stale, they are not this project, and a wrong
+   one is worse than a gap. Keep it comparable in length to a library agent; a short,
+   correct, pointer-driven body beats a long one.
+5. **A filled PROJECT-CONTEXT block** — exactly one
+   `<!-- PROJECT-CONTEXT:BEGIN -->` / `<!-- PROJECT-CONTEXT:END -->` pair, with this
+   project's specifics between them and no `Filled by /org-init` sentinel.
+6. **Registered in `AGENTS.md`** — add a roster line whose first token is the agent name,
+   under the relevant team block, in the same format as the surrounding lines. Note this
+   makes the project's `AGENTS.md` differ from the library's; `/org-update` will flag it
+   CUSTOMIZED, which is correct and expected. Say so in the handover.
+7. **Staffed on a roster** — add the name to that team yaml's `specialists`. An agent on
+   no roster is dead weight and the validator warns about it.
+
 ## 6. Materialize (staging first)
 
 Build EVERYTHING under `.claude/.org-init-staging/` first. Only after all
@@ -240,6 +378,10 @@ Generate, each file with its provenance header:
    `<!-- PROJECT-CONTEXT:BEGIN -->` and `<!-- PROJECT-CONTEXT:END -->` with
    project specifics — stack, the key paths for this agent's remit, project
    commands, conventions. Leave everything outside the markers untouched.
+   Any integration specialists the user confirmed in step 5a are **generated**
+   into this same staging dir rather than copied — they carry the
+   `agentic-org: project-owned` marker in place of a `source=` header, and
+   5a is their full contract.
    The materialized `AGENTS.md` lists the FULL library roster even though only
    some agents were staffed — a team lead reading it could route to an
    agentType that doesn't exist in this project. Prepend a short header note
@@ -320,7 +462,15 @@ over an org that fails validation.
 ## 9. Hand over
 
 Report: the org chart (`ls .claude/teams/*.yaml`), agents materialized, recipes
-installed, and a first-dispatch example using the user's ticket convention:
+installed, and a first-dispatch example using the user's ticket convention.
+
+List agents in two groups, because they behave differently from here on: the ones
+**copied from the library** (which `/org-update` keeps in sync) and the ones
+**generated for this project** in step 5a (`grep -rln 'agentic-org: project-owned'
+.claude/agents/`), which this project now owns outright — `/org-update` will never
+sync or overwrite them, so improving them is the project's job. If any were
+generated, also say that `AGENTS.md` now carries their roster lines and will be
+reported CUSTOMIZED by the next `/org-update`, which is expected.
 
 ```
 /team dispatch <team> <TICKET-1> "<one concrete starter task from the interview>" small
