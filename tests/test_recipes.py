@@ -16,6 +16,7 @@ NAMES = [
     "first-run",
     "dependency-probe",
     "state-reconcile",
+    "landscape-check",
 ]
 
 

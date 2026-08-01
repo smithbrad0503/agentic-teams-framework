@@ -186,6 +186,7 @@ Use AskUserQuestion where options fit; keep it to ~6 questions:
    | `first-run` | Probe the signup→first-value journey for defects that only appear with zero data and no prior state. Read-only. |
    | `dependency-probe` | Probe every third-party dependency against production failure modes, then ask which single change breaks the most at once. Read-only. |
    | `state-reconcile` | Detect drift between what a tracker claims and what reality shows (board vs git, roadmap vs shipped), via two blind gatherers. Report-only unless write-back is explicitly authorized. |
+   | `landscape-check` | Check whether the ecosystem now ships something you still maintain yourself, comparing by function rather than by name. Says what to stop maintaining and what is still genuinely yours. Read-only. |
 
    `batch-author` is worth flagging specifically: it covers the case ownership
    zones and worktrees structurally cannot — many independent work items that all

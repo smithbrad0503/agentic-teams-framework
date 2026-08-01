@@ -162,6 +162,13 @@ gap that currently confines the framework to web-service-shaped repos.
 
 ### v0.6.0 — Sustain
 
+- **`landscape-check` recipe** — *authored, unreleased.* Systematizes the check that killed two
+  builds in v0.5.0: probe each capability this framework maintains against the surfaces that may
+  now provide it (platform-native first, community last), then verify each apparent overlap by
+  **function** rather than by name — "a plugin named `skill-creator` exists" is not "our skill
+  authoring is redundant". Classifies per capability: SUBSUMED / OVERLAPPING / DIFFERENTIATED /
+  UNVERIFIED, and returns the keep-building half with what still makes it ours, not only the
+  delete-this half. Read-only. That check has been a human going and looking, once, by luck.
 - **Librarian**: flag context packs whose staleness date predates recent merges in their zones.
   Flag-only, never auto-rewrite. The docs warn that a stale pack "silently misleads every agent"
   and nothing currently detects one.
