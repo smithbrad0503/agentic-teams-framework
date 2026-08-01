@@ -41,6 +41,7 @@ Coordination (leads)
   product-manager     Product strategy, roadmap, RICE, user stories, tiering
 
 Engineering (delivery)
+  software-engineer   Generalist implementer when no specialist fits: games, CLIs, libraries
   backend-expert      Server-side app code: routing, ORM, validation, auth, caching
   frontend-expert     UI framework, components, responsive layout, a11y, perf
   api-expert          REST/contract design, versioning, tier-based access

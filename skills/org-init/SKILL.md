@@ -189,10 +189,28 @@ Staff teams from the library roster (`${CLAUDE_PLUGIN_ROOT}/.claude/agents/`):
 
 | Function | Team yaml | type/output | gates | Lead | Specialists (pick for the stack) | roster.test |
 |---|---|---|---|---|---|---|
-| Delivery | `dev.yaml` (split into `backend.yaml`/`frontend.yaml` only when zones are truly disjoint) | delivery/pr | `[code-review, ci-green]` | tech-lead | backend-expert, frontend-expert, api-expert, database-expert — as the stack requires | qa-tester |
+| Delivery | `dev.yaml` (split into `backend.yaml`/`frontend.yaml` only when zones are truly disjoint) | delivery/pr | `[code-review, ci-green]` | tech-lead | backend-expert, frontend-expert, api-expert, database-expert — as the stack requires; `software-engineer` when none of them fits (see below) | qa-tester |
 | Product advisory | `product.yaml` | advisory/document | `[critique]` | product-manager | ux-designer, analytics-expert | code-reviewer (fact-check gate) |
 | Growth | `growth.yaml` | advisory/document | `[critique]` | marketing-expert | copywriter | legal-expert (compliance gate) |
 | Platform-ops | `platform.yaml` | delivery/pr | `[code-review, ci-green]` | tech-lead | cloud-infra-expert, sre, security-expert | qa-tester |
+
+**Delivery specialists when no specialist fits the stack.** The four named above are
+web-service-shaped: `backend-expert` assumes routes and an ORM, `frontend-expert` assumes a
+browser UI framework, `api-expert` assumes a REST/OpenAPI contract, `database-expert` assumes
+a SQL schema. Decide from the step-4 scan, not from the stack's name. If the scan found
+**no web/API/DB surface** — no HTTP server or route definitions, no API contract/schema
+files, no database schema or migration directory — do NOT staff the least-wrong one and rely on its
+PROJECT-CONTEXT block to contradict a body describing the wrong stack. Staff
+`software-engineer`: the stack-agnostic implementer seat, whose body is engineering method
+(read the surrounding idiom first, discover the project's real build/test/lint commands,
+smallest change, pin behavior in the project's own testing idiom) and which takes every
+specific from its PROJECT-CONTEXT block. Typical cases: game-engine projects, CLIs, libraries
+and SDKs, data/ETL pipelines, embedded and systems code, build/dev tooling, and
+docs- or config-heavy repos. In a **mixed** repo, staff both — the fitting specialists for the
+surfaces that exist, plus `software-engineer` for the parts none of them covers; the decompose
+stage then picks per work package. Its PROJECT-CONTEXT block matters more than most: name the
+language(s), the verified build/test/lint commands, where source and tests live, and which
+directories are generated or vendored.
 
 On a **delivery** team `roster.test` is the agent that writes tests. On an **advisory**
 team it is the **critique-gate seat**: the non-author who attacks the document before a

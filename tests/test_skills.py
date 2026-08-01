@@ -20,6 +20,21 @@ def test_org_init_skill() -> None:
     assert "NEVER silently overwrite" in text
 
 
+def test_org_init_staffs_the_generalist_when_no_specialist_fits() -> None:
+    """Roster selection must actually reach `software-engineer`, or it is never staffed.
+
+    The library can carry a stack-agnostic implementer and still never use it: the
+    delivery row of the roster table is what the wizard reads, and if that row only
+    lists the four web-service specialists, a game/CLI/library repo still gets the
+    least-wrong one. This pins the selection rule, not just the agent's existence.
+    """
+    text = read_skill("org-init")
+    assert "software-engineer" in text, "the generalist must appear in roster selection"
+    assert "no web/API/DB surface" in text, (
+        "the selection rule must key on what the step-4 scan found, not on the stack's name"
+    )
+
+
 def test_recipe_new_skill() -> None:
     """The authoring skill must carry the invariants, not just describe the format.
 
