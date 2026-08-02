@@ -111,13 +111,28 @@ materialization would overwrite those files.
 Run:
 
 ```bash
-ls .claude/agents/*.md .claude/commands/*.md .claude/workflows/*.js 2>/dev/null
+# RECURSIVE on purpose. A flat `ls .claude/agents/*.md` misses agents kept in
+# subdirectories, and that is common: on a real project this check reported 2
+# agents when 33 existed (agents/engineering/, agents/ai_ml/, agents/business/…),
+# under-reporting by 94% and making an organised project look nearly clean.
+find .claude/agents -name '*.md' 2>/dev/null
+find .claude/commands -name '*.md' 2>/dev/null
+find .claude/workflows -name '*.js' 2>/dev/null
 ```
 
 If anything is listed, do **not** treat this as a clean project. Compute the
-collisions before writing anything: for every file this run would materialize,
-check whether that exact path already exists. Then show the CEO the collision
-list and offer exactly three paths:
+collisions before writing anything, at **two** levels:
+
+- **Path collisions** — for every file this run would materialize, does that exact
+  path already exist?
+- **Name collisions** — does an agent of the same *name* already exist anywhere in
+  the tree, even at a different path? A project keeping
+  `agents/engineering/backend-expert.md` would otherwise receive a SECOND
+  `backend-expert` at `agents/backend-expert.md`: no path collision, two identities
+  with one name, and nothing says which one a lead dispatches. Treat a name
+  collision as a collision — preserve theirs by default.
+
+Then show the CEO the collision list and offer exactly three paths:
 
 - **preserve** (default, recommended) — materialize only the files that do not
   already exist, skip every collision, and list the skips at the end. Their
@@ -438,7 +453,15 @@ Generate, each file with its provenance header:
    `defaults:` block structure) unchanged — `fallback` is the route a failed
    stage's retry escalates to, so its placeholder gets substituted like any
    other and it must land on a strong, reliably available model.
-10. **State dir** → `teams/state/.gitkeep` (empty file).
+10. **State dir** → `teams/state/.gitkeep` (empty file). **Add it; never remove
+    what is already there.** A project may already keep its own ignore rule inside
+    `teams/state/` (e.g. a local `.gitignore` holding `*` + `!.gitignore`), which is
+    a valid way to achieve the same result. On a real run this step replaced such a
+    file, and the net effect was equivalent — but the guarantee this wizard makes is
+    "never overwrite a pre-existing file without confirmation", and **deleting is
+    stronger than overwriting**. If `teams/state/` already contains an ignore file,
+    keep it, still write `.gitkeep`, and say in the handover that both are present
+    and either alone would suffice.
 
 ## 7. Wire the project
 

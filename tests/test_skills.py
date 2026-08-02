@@ -153,3 +153,47 @@ def test_org_update_never_syncs_project_owned_agents() -> None:
     assert "agentic-org: project-owned" in text, "the marker must be a recognised classification"
     assert "NEVER auto-updated, and never reported as drift" in text
     assert "no upstream library file" in text, "say WHY, not just what"
+
+
+def test_org_init_detects_agents_in_subdirectories() -> None:
+    """The prior-Claude-Code check must recurse.
+
+    Measured on a real project during the first pilot: a flat `ls .claude/agents/*.md`
+    reported 2 agents where 33 existed, because that project keeps them in
+    subdirectories (agents/engineering/, agents/ai_ml/, agents/business/). A 94%
+    under-report makes an organised project look nearly clean to the guard whose
+    entire job is noticing it is not.
+    """
+    text = read_skill("org-init")
+    assert "find .claude/agents -name '*.md'" in text, (
+        "2c must find agents recursively — a flat glob misses subdirectories"
+    )
+    assert "ls .claude/agents/*.md .claude/commands/*.md" not in text, (
+        "the non-recursive glob must be gone, not merely supplemented"
+    )
+
+
+def test_org_init_treats_a_duplicate_agent_name_as_a_collision() -> None:
+    """Path collisions alone are not enough.
+
+    An existing `agents/engineering/backend-expert.md` does not collide by path with
+    a materialized `agents/backend-expert.md` — so without a name-level check the
+    project ends up with two identities sharing one name, and nothing determines
+    which one a team lead dispatches.
+    """
+    text = read_skill("org-init")
+    assert "Name collisions" in text
+    assert "same *name* already exist anywhere in" in text
+
+
+def test_org_init_never_deletes_a_pre_existing_state_ignore_file() -> None:
+    """Preserve mode may add, never remove.
+
+    Measured on the same pilot run: writing `teams/state/.gitkeep` replaced a
+    pre-existing `teams/state/.gitignore`. The outcome was equivalent, but the
+    wizard's guarantee is "never overwrite a pre-existing file without
+    confirmation" — and deleting is strictly stronger than overwriting.
+    """
+    text = read_skill("org-init")
+    assert "never remove\n    what is already there" in text
+    assert "deleting is\n    stronger than overwriting" in text
