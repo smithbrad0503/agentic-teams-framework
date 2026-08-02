@@ -77,3 +77,26 @@ def test_audit_distinguishes_dead_verifier_from_refutation() -> None:
         "the collapsed truthiness check is the bug: it makes a dead verifier "
         "indistinguishable from a successful refutation"
     )
+
+
+@pytest.mark.parametrize("name,field", [("audit", "findings"), ("consistency-sweep", "violations")])
+def test_dead_stage_one_is_caught_before_the_fan_out(name: str, field: str) -> None:
+    """A stage-1 agent that returns null is NOT the same as one that throws.
+
+    `agent()` returns null on failure — that is the COMMON case. Throwing is rare.
+    But `((r && r.<field>) || [])` turns a null into an empty fan-out, which returns
+    an empty array, which passes any `Array.isArray` recovery downstream. The item
+    then reads CLEAN because nobody looked at it.
+
+    Only stage 2, before the fan-out, can tell the two apart. This bug was fixed here
+    three times: once for the dead verifier, once for the thrown stage, and once for
+    this — the path that actually happens most often.
+    """
+    text = (RECIPES / f"{name}.js").read_text()
+    assert f"!r || !Array.isArray(r.{field})" in text, (
+        f"{name}: stage 2 must detect a null stage-1 result BEFORE fanning out"
+    )
+    assert f"((r && r.{field}) || [])" not in text, (
+        f"{name}: the collapsing default is the bug — it makes a dead agent "
+        "indistinguishable from a genuinely empty result"
+    )

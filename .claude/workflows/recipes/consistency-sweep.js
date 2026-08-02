@@ -126,8 +126,23 @@ const swept = await pipeline(
   (s) =>
     agent(sweepPrompt(s), { label: `sweep:${s.key}`, phase: 'Sweep', schema: VIOLATIONS_SCHEMA }),
   (r, s) =>
-    parallel(
-      ((r && r.violations) || []).map((v) => () =>
+    // A dead stage-1 sweeper returns NULL — it does not throw. `(r && r.violations) || []`
+    // would turn that into an empty fan-out, an empty array, and a surface that reads
+    // CLEAN because nobody read it. The outer recovery below cannot catch it: an empty
+    // array IS an array. Only here, before the fan-out, can the two be told apart.
+    !r || !Array.isArray(r.violations)
+      ? [{
+          file: '(unknown)',
+          where: '(unknown)',
+          text: `(surface never swept: "${s && s.key}")`,
+          rule: '(unknown)',
+          surface: (s && s.key) || '(unknown)',
+          verdict: 'unverified',
+          exposure: 'unknown',
+          verifyReason: 'the sweep stage returned no report for this surface',
+        }]
+      : parallel(
+          r.violations.map((v) => () =>
         agent(verifyPrompt(v, s), {
           label: `verify:${s.key}:${String(v.file || '?').slice(0, 40)}`,
           phase: 'Verify',
